@@ -40,3 +40,14 @@ test:
 # フックが yaml/plist/md 等を渡してきたときのために拡張子で分岐する。
 fmt-file file:
     @case "{{file}}" in *.swift) swiftformat "{{file}}" ;; esac
+
+# Xcode プロジェクトを project.yml から生成(ADR-0004)。生成物 Mimizuku.xcodeproj /
+# App/Info.plist はコミットしない ―― 開く/ビルドの前にこれを実行する。
+generate:
+    @xcodegen generate
+
+# App の署名付きローカルビルド(完全な Xcode 必須)。TCC プロンプトは署名済み
+# ビルドでのみ出る(domain-pitfalls #4)ため、ローカルは通常署名でビルドする。
+# Xcode 依存のため純ロジック検証の `just check` には含めない(CI は別ジョブ)。
+app-build: generate
+    @xcodebuild -project Mimizuku.xcodeproj -scheme Mimizuku -configuration Debug build

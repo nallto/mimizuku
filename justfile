@@ -36,11 +36,7 @@ test:
     @for p in {{packages}}; do echo "== swift test: $p =="; swift test --package-path "$p"; done
 
 # 単一ファイル整形。PostToolUse フック(.claude/hooks/post-edit.sh)が
-# 編集のたびに自動で呼び出す。
+# 編集のたびに自動で呼び出す。swiftformat は .swift 以外を扱えないため、
+# フックが yaml/plist/md 等を渡してきたときのために拡張子で分岐する。
 fmt-file file:
-    @swiftformat "{{file}}"
-
-# App ビルド(Xcode プロジェクト作成後 = Slice 0 以降に有効)。.xcodeproj は
-# 初回開発セッションで作るため、まだ `just check` には含めない。
-# app-build:
-#     xcodebuild -scheme Mimizuku -configuration Debug build
+    @case "{{file}}" in *.swift) swiftformat "{{file}}" ;; esac

@@ -27,7 +27,7 @@ jobs:
       # チェーン対策)。dependabot.yml が github-actions を対象にするため、ピン留め
       # 後も自動更新される。
       - uses: actions/checkout@v4
-      - uses: jdx/mise-action@v2
+      - uses: jdx/mise-action@v4
       - name: Toolchain
         run: |
           sw_vers
@@ -43,7 +43,7 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
-      - uses: jdx/mise-action@v2
+      - uses: jdx/mise-action@v4
       - name: Toolchain
         run: |
           sw_vers

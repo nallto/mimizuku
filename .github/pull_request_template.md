@@ -20,6 +20,7 @@ Closes #
 
 ## チェックリスト
 
+- [ ] 対応する Issue に紐付けた(上の「関連 Issue」に記入。setup 等の例外は概要に理由)
 - [ ] `just check` が手元で green
 - [ ] PR タイトルが Conventional Commits 準拠(英語・72 文字以内)
 - [ ] Squash body(what / why)を記載した

@@ -36,11 +36,18 @@ test:
     @for p in {{packages}}; do echo "== swift test: $p =="; swift test --package-path "$p"; done
 
 # 単一ファイル整形。PostToolUse フック(.claude/hooks/post-edit.sh)が
-# 編集のたびに自動で呼び出す。
+# 編集のたびに自動で呼び出す。swiftformat は .swift 以外を扱えないため、
+# フックが yaml/plist/md 等を渡してきたときのために拡張子で分岐する。
 fmt-file file:
-    @swiftformat "{{file}}"
+    @case "{{file}}" in *.swift) swiftformat "{{file}}" ;; esac
 
-# App ビルド(Xcode プロジェクト作成後 = Slice 0 以降に有効)。.xcodeproj は
-# 初回開発セッションで作るため、まだ `just check` には含めない。
-# app-build:
-#     xcodebuild -scheme Mimizuku -configuration Debug build
+# Xcode プロジェクトを project.yml から生成(ADR-0004)。生成物 Mimizuku.xcodeproj /
+# App/Info.plist はコミットしない ―― 開く/ビルドの前にこれを実行する。
+generate:
+    @xcodegen generate
+
+# App の署名付きローカルビルド(完全な Xcode 必須)。TCC プロンプトは署名済み
+# ビルドでのみ出る(domain-pitfalls #4)ため、ローカルは通常署名でビルドする。
+# Xcode 依存のため純ロジック検証の `just check` には含めない(CI は別ジョブ)。
+app-build: generate
+    @xcodebuild -project Mimizuku.xcodeproj -scheme Mimizuku -configuration Debug build

@@ -1,0 +1,22 @@
+# リリース制御弁(G-0002): main へのマージを集約したリリース PR を生成し、そのリリース
+# PR をマージしたときのみタグ・Release・CHANGELOG 更新が発生する。
+name: release-please
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  release-please:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: googleapis/release-please-action@v4
+        with:
+          # `simple`(version.txt + CHANGELOG.md を管理、スタック非依存)。
+          # macOS の署名・notarize・staple + Homebrew cask は Slice 4 で別 workflow。
+          release-type: simple

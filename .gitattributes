@@ -1,0 +1,14 @@
+# Normalize line endings to LF inside the repo.
+* text=auto eol=lf
+
+# Binary assets: no diff / no EOL conversion.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.pdf binary
+*.zip binary
+# Signing / provisioning artifacts (should never be committed anyway).
+*.p12 binary
+*.mobileprovision binary
+*.cer binary

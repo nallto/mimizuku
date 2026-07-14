@@ -1,0 +1,38 @@
+name: バグ報告
+description: 期待と異なる動作の報告
+labels: ["bug"]
+body:
+  - type: textarea
+    id: actual
+    attributes:
+      label: 現象
+      description: 何が起きたか。エラーメッセージ・ログがあれば貼る
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: 期待する動作
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: 再現手順
+      placeholder: |
+        1.
+        2.
+    validations:
+      required: true
+  - type: textarea
+    id: env
+    attributes:
+      label: 環境
+      description: "`sw_vers` の出力、Mac の機種(Apple Silicon 世代)、使用中の音声デバイス(内蔵/AirPods 等)"
+    validations:
+      required: true
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: 診断画面のスクリーンショット
+      description: アプリの権限診断画面(マイク / システム音声 / モデルアセットの状態)があれば添付

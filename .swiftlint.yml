@@ -1,0 +1,31 @@
+# SwiftLint 設定。`just lint`(swiftlint lint --strict)が使用する。
+# 方針: 既定ルール + いくつかの opt-in。警告も --strict で失敗にする。
+
+excluded:
+  - .build
+  - DerivedData
+  - Packages/MimizukuCore/.build
+
+opt_in_rules:
+  - empty_count
+  - explicit_init
+  - first_where
+  - force_unwrapping
+  - implicitly_unwrapped_optional
+  - redundant_nil_coalescing
+  - toggle_bool
+  - unused_import
+
+line_length:
+  warning: 100
+  error: 140
+  ignores_comments: true
+
+# ドメイン上の理由でハード制約に関わるものは強めに扱う。
+force_cast: error
+force_try: error
+force_unwrapping: error
+
+identifier_name:
+  min_length: 2
+  excluded: [id, x, y, dB]

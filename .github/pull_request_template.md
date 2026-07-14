@@ -12,7 +12,7 @@ Closes #
 
 ## Squash body
 
-<!-- Paste this into the squash commit body at merge time (what / why, English). Include a "BREAKING CHANGE: <what and migration>" footer for breaking changes. Note: PR descriptions and review comments are not in git history — put what must survive here and in ADRs. -->
+<!-- what / why の要約(TL;DR)。破壊的変更は "BREAKING CHANGE: <内容と移行>" フッターを含める(release-please が major を検出)。マージ時は PR 本文全文を squash コミット本文にする(#14 スタイル)ため、この PR 説明はそのまま main の履歴に残る。 -->
 
 ```text
 

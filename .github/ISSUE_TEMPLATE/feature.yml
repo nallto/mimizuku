@@ -1,0 +1,22 @@
+name: 機能要望・改善提案
+description: 新機能または既存機能の改善の提案
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: 解決したい課題
+      description: なぜ必要か(背景・課題)
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: 提案内容
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: 検討した代替案
+      description: 設計判断を伴う場合は ADR 起票も検討する

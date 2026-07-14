@@ -1,0 +1,16 @@
+# SwiftFormat 設定。`just fmt` / `just fmt-check` / 編集時フックが使用する。
+--swiftversion 6.0
+
+# 対象外
+--exclude .build,Packages/**/.build,**/.build,DerivedData
+
+# 代表的なルール(既定に近い明示指定)
+--indent 4
+--maxwidth 100
+--wraparguments before-first
+--wrapparameters before-first
+--wrapcollections before-first
+--commas inline
+--trimwhitespace always
+--self remove
+--importgrouping testable-bottom

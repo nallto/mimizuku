@@ -1,0 +1,51 @@
+# MkDocs Material 設定。docs/ を GitHub Pages に公開する(ワークフロー: .github/workflows/docs.yml)。
+# ローカルプレビュー: pip install mkdocs-material && mkdocs serve
+site_name: Mimizuku Docs
+docs_dir: docs
+# TODO(defer): 実リポジトリ確定後に owner/repo を合わせる
+repo_url: https://github.com/nallto/mimizuku
+
+theme:
+  name: material
+  language: ja
+  palette:
+    - scheme: default
+      toggle:
+        icon: material/weather-night
+        name: ダークモードへ
+    - scheme: slate
+      toggle:
+        icon: material/weather-sunny
+        name: ライトモードへ
+  features:
+    - navigation.sections
+    - navigation.top
+    - content.code.copy
+    - search.suggest
+
+markdown_extensions:
+  - admonition
+  - tables
+  - toc:
+      permalink: true
+  - pymdownx.superfences
+  - pymdownx.details
+
+nav:
+  - ホーム: index.md
+  - アーキテクチャ: architecture.md
+  - ドメインの落とし穴: domain-pitfalls.md
+  - 開発ガイド: development.md
+  - 実装計画:
+      - スライス計画: plan/IMPLEMENTATION_PLAN.md
+      - Claude Code kickoff: plan/CLAUDE_CODE_KICKOFF.md
+  - ADR:
+      - 一覧: adr/README.md
+      - ADR-0001 最小OSターゲット: adr/0001-minimum-os-target.md
+      - ADR-0002 ライセンス: adr/0002-license.md
+      - ADR-0003 モジュール構成: adr/0003-module-architecture.md
+      - G-0001 マージ戦略: adr/governance/G-0001-merge-strategy.md
+      - G-0002 リリース戦略: adr/governance/G-0002-release-strategy.md
+      - G-0003 未完成コード統合: adr/governance/G-0003-incomplete-code-integration.md
+      - G-0004 実行モード: adr/governance/G-0004-execution-modes.md
+      - テンプレート: adr/template.md

@@ -1,0 +1,11 @@
+# ツールの版数 SSOT。CI(jdx/mise-action)もローカルもこの定義を使う(再現性)。
+#
+# 注意: mise が固定するのは補助ツールのみ。Swift コンパイラと Xcode は macos-26
+# ランナーイメージ / ローカルの Xcode 由来であり、mise では管理しない。ドリフトが
+# 問題になったら CI 側で Xcode バージョンを別途ピン留めする(docs/development.md)。
+
+[tools]
+just = "1"
+jq = "1.7"
+swiftlint = "0.57"
+swiftformat = "0.55"

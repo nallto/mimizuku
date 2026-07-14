@@ -1,0 +1,45 @@
+# macOS
+.DS_Store
+Thumbs.db
+
+# Xcode
+build/
+DerivedData/
+*.xcuserstate
+xcuserdata/
+*.xcscmblueprint
+*.xccheckout
+
+# Swift Package Manager
+.build/
+.swiftpm/
+Package.resolved
+
+# Secrets / signing (never commit; also enforced by CI gitleaks)
+.env
+.env.*
+!.env.example
+*.p12
+*.mobileprovision
+*.cer
+
+# Recorded audio / transcripts must never be committed
+*.caf
+*.wav
+sessions/
+
+# AI agent personal-local files (not shared with the team)
+CLAUDE.local.md
+.claude/settings.local.json
+
+# 個人用ローカル領域(README 以外は追跡しない)
+/local/*
+!/local/README.md
+
+# MkDocs build output
+site/
+_site/
+
+# Editor
+.idea/
+*.swp

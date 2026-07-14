@@ -1,0 +1,12 @@
+version: 2
+updates:
+  # GitHub Actions の自動更新(SHA ピン留めした action も更新される)。
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+  # Swift Package Manager の依存(ローカルパッケージ + 追加した remote 依存)。
+  - package-ecosystem: swift
+    directory: /Packages/MimizukuCore
+    schedule:
+      interval: weekly

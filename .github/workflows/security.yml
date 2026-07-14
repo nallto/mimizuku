@@ -1,0 +1,27 @@
+# シークレット混入検知。エージェントが生成・コミットするコードにも適用される最後の防衛線。
+name: security
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  schedule:
+    - cron: "0 3 * * 1"
+
+permissions:
+  contents: read
+
+jobs:
+  gitleaks:
+    name: gitleaks
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # 個人アカウントのリポジトリでは不要。Organization 配下では
+          # GITLEAKS_LICENSE(無償申請可)の設定が必要。

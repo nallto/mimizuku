@@ -26,7 +26,7 @@ jobs:
       # 注意: セットアップ後、各 action は commit SHA へピン留めを推奨(サプライ
       # チェーン対策)。dependabot.yml が github-actions を対象にするため、ピン留め
       # 後も自動更新される。
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: jdx/mise-action@v2
       - name: Toolchain
         run: |
@@ -42,7 +42,7 @@ jobs:
     runs-on: macos-26
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: jdx/mise-action@v2
       - name: Toolchain
         run: |

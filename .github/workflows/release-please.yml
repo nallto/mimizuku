@@ -15,8 +15,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
+      # 設定は manifest モード: release-please-config.json / .release-please-manifest.json。
+      # release-type=simple(version.txt + CHANGELOG.md を管理)。pre-1.0 の versioning 方針
+      # (bump-minor-pre-major / bump-patch-for-minor-pre-major)は config ファイルで指定し、
+      # 1.0.0 は Release-As で明示的に切るまで 0.x に留める(#7)。
+      # macOS の署名・notarize・staple + Homebrew cask は Slice 4 で別 workflow。
       - uses: googleapis/release-please-action@v4
-        with:
-          # `simple`(version.txt + CHANGELOG.md を管理、スタック非依存)。
-          # macOS の署名・notarize・staple + Homebrew cask は Slice 4 で別 workflow。
-          release-type: simple

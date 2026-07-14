@@ -18,10 +18,9 @@
    - type: `feat` `fix` `perf` `refactor` `docs` `test` `build` `ci` `chore` `revert`
    - 破壊的変更は `!` を付ける: `feat(capture)!: AudioSource 契約を変更`
    - 要約: type は英語トークン、要約(summary)は日本語でよい。ヘッダ全体で 72 文字以内・末尾ピリオドなし。
-2. **squash 本文案**を PR 説明の `## Squash 本文案` セクションに書く:
-   - what(何を)と why(なぜ)。
-   - 破壊的変更は `BREAKING CHANGE: <内容と移行方法>` フッターを含める(release-please がmajor バンプを検出するのに必要)。
-   - マージ実行者はこのセクションを squash コミット本文に貼り付ける。GitHub の自動生成(コミットの羅列)をそのまま使わない。
+2. **PR 説明は 5 セクション**(概要 / 変更内容 / 関連 Issue / Squash body / チェックリスト。テンプレート参照)で書く。**マージ時は PR 本文全文を squash コミット本文にする**(#14 スタイル。`gh pr merge <n> --squash --body-file <PR本文> --subject "<PRタイトル> (#<n>)"`)。PR 説明がそのまま main 履歴に残る。
+   - `## Squash body` 節には what / why の要約を書く(破壊的変更は `BREAKING CHANGE: <内容と移行方法>` フッター。release-please が major バンプ検出に使う)。
+   - GitHub の自動生成(コミットの羅列)は使わない。
 3. **PR 説明**(日本語): 概要・変更点・`Closes #<issue>`・テンプレートのチェックリスト。
 4. マージ前条件: CI(check / pr-title / gitleaks)がすべて green。
 

@@ -9,3 +9,4 @@ just = "1"
 jq = "1.7"
 swiftlint = "0.57"
 swiftformat = "0.55"
+xcodegen = "2.45"  # Xcode プロジェクトを project.yml から生成(ADR-0004)

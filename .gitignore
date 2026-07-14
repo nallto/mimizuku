@@ -10,6 +10,9 @@ xcuserdata/
 *.xcscmblueprint
 *.xccheckout
 
+# XcodeGen が project.yml から生成する成果物(コミットしない。ADR-0004)
+/Mimizuku.xcodeproj/
+
 # Swift Package Manager
 .build/
 .swiftpm/

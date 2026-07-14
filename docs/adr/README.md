@@ -16,6 +16,7 @@
 | [0001](./0001-minimum-os-target.md) | 最小デプロイターゲットは macOS 26、Apple Silicon 限定 | Accepted |
 | [0002](./0002-license.md) | ライセンスは Apache-2.0 | **Proposed**(法務確認待ち・公開のブロッカー) |
 | [0003](./0003-module-architecture.md) | App ターゲット + 単一 SPM パッケージ(MimizukuCore)で開始 | Accepted |
+| [0004](./0004-xcode-project-generation.md) | Xcode プロジェクトは XcodeGen で生成(project.yml を正典) | Accepted |
 
 ## 統治判断
 

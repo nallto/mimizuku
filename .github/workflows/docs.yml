@@ -31,7 +31,7 @@ jobs:
       - run: pip install mkdocs-material
       # --strict: リンク切れ等を CI で失敗させる(docs 品質ゲート)
       - run: mkdocs build --strict --site-dir _site
-      - uses: actions/upload-pages-artifact@v3
+      - uses: actions/upload-pages-artifact@v5
         with:
           path: _site
 

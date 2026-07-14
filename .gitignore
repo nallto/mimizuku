@@ -10,6 +10,11 @@ xcuserdata/
 *.xcscmblueprint
 *.xccheckout
 
+# XcodeGen が project.yml から生成する成果物(コミットしない。ADR-0004)。
+# usage string 等の正典は project.yml。Info.plist もそこから生成する。
+/Mimizuku.xcodeproj/
+/App/Info.plist
+
 # Swift Package Manager
 .build/
 .swiftpm/

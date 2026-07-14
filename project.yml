@@ -1,0 +1,62 @@
+# XcodeGen による Xcode プロジェクト定義の正典(ADR-0004)。
+# 生成物 Mimizuku.xcodeproj / App/Info.plist はコミットしない(gitignore)。
+# 開く/ビルドする際は `just generate`(= xcodegen generate)で再生成する。
+name: Mimizuku
+
+options:
+  bundleIdPrefix: dev.nallto
+  deploymentTarget:
+    macOS: "26.0"
+  createIntermediateGroups: true
+
+# 全ターゲット共通のビルド設定(ハード制約: ADR-0001 / #4)。
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    SWIFT_STRICT_CONCURRENCY: complete
+    MACOSX_DEPLOYMENT_TARGET: "26.0"
+
+# ローカル SPM パッケージ(ADR-0003)。App は契約越しに依存する。
+packages:
+  MimizukuCore:
+    path: Packages/MimizukuCore
+
+targets:
+  Mimizuku:
+    type: application
+    platform: macOS
+    deploymentTarget: "26.0"
+    sources:
+      - path: App
+    dependencies:
+      - package: MimizukuCore
+    # Info.plist は XcodeGen が生成する(usage string の正典はこの project.yml)。
+    # NSAudioCaptureUsageDescription は Xcode の GUI ドロップダウンに無いキーで、
+    # ここに宣言的に書く(domain-pitfalls #4 / IMPLEMENTATION_PLAN Slice 0 task 4)。
+    info:
+      path: App/Info.plist
+      properties:
+        # メニューバー常駐(Dock アイコンなし)。
+        LSUIElement: true
+        # TCC プロンプトに表示される用途説明。音声はデバイス外に出さない(ハード制約 #2)。
+        NSMicrophoneUsageDescription: >-
+          会議のあなたの声を、オンデバイスで文字起こしするためにマイクを使用します。音声も文字起こしもこの Mac の外に送信されません。
+        NSAudioCaptureUsageDescription: >-
+          相手の声(システム音声)を、オンデバイスで文字起こしするために録音します。音声も文字起こしもこの Mac の外に送信されません。
+        NSSpeechRecognitionUsageDescription: >-
+          録音した音声を、完全にオンデバイスで文字起こしするために音声認識を使用します。データはこの Mac の外に送信されません。
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: dev.nallto.Mimizuku
+        PRODUCT_NAME: Mimizuku
+        MARKETING_VERSION: "0.0.1"
+        CURRENT_PROJECT_VERSION: "1"
+
+# xcodebuild -scheme Mimizuku 用の共有スキーム(CI の App ビルドジョブが使用)。
+schemes:
+  Mimizuku:
+    build:
+      targets:
+        Mimizuku: all
+    run:
+      config: Debug

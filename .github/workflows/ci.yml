@@ -35,8 +35,34 @@ jobs:
           swift --version
       - run: just check
 
+  # App(.app)のコンパイル検証。SwiftUI MenuBarExtra は `swift build` では .app 化
+  # できず xcodebuild が必須(ADR-0004)。純ロジック検証の check とは別ジョブにする。
+  app-build:
+    name: app-build
+    runs-on: macos-26
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: jdx/mise-action@v2
+      - name: Toolchain
+        run: |
+          sw_vers
+          xcodebuild -version
+      # project.yml(正典)から .xcodeproj / Info.plist を生成する(ローカルと同一手順)。
+      - name: Generate Xcode project
+        run: just generate
+      # ホスト型ランナーに署名証明書は無く、目的はコンパイル検証のみなので署名を無効化。
+      # 署名済みビルドでしか TCC は動かないが(domain-pitfalls #4)、ここでは実行しない。
+      # 署名 + notarization はリリーススライス(Slice 4)で別 workflow として追加する。
+      - name: Build app (unsigned)
+        run: |
+          xcodebuild build \
+            -project Mimizuku.xcodeproj \
+            -scheme Mimizuku \
+            -configuration Debug \
+            CODE_SIGNING_ALLOWED=NO
+
   # 設計上の注意:
-  # - App ターゲットのビルドジョブは Slice 0(Xcode プロジェクト作成)後に追加する。
   # - 音声/TCC 統合テストはホスト型ランナーで実行不可(権限を付与できない)。
   #   ローカル限定。docs/domain-pitfalls.md #8 を参照。
   # - リリース署名・notarization は Slice 4 で別 workflow として追加する。

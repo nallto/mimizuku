@@ -21,7 +21,7 @@
 
 - マージは **squash merge のみ**。リポジトリ設定で merge commit / rebase merge を無効化する。
 - **PR タイトル**を Conventional Commits 1.0.0 準拠とし、CI(pr-title workflow)で機械検証する。作業ブランチ上の個々のコミット形式は自由。
-- squash 本文(what / why、`BREAKING CHANGE:` フッター)は PR 説明の「Squash 本文案」で確定し、マージ時に貼り付ける。
+- squash 本文は **PR 本文全文**(概要 / 変更内容 / 関連 Issue / Squash body / チェックリスト)とし、マージ時に `--body-file` で貼り付ける(#14 スタイル。PR 説明がそのまま main 履歴に残る)。what / why の要約(`BREAKING CHANGE:` フッター含む)は「Squash body」節に書く。
 - 例外は構造的に決まるケースのみ(例: G-0002 の条件で release ブランチを導入した場合のback-merge)。都度判断による例外は認めない。
 
 ## Consequences(結果)

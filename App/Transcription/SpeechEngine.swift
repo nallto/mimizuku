@@ -64,7 +64,7 @@ actor SpeechEngine: TranscriptionEngine {
     // MARK: - 文字起こし
 
     /// `segments(from:)` の返り型(行長を抑えるための別名。契約と同一の型)。
-    private typealias SegmentStream = AsyncThrowingStream<TranscriptSegment, Error>
+    typealias SegmentStream = AsyncThrowingStream<TranscriptSegment, Error>
 
     nonisolated func segments(from source: any AudioSource) -> SegmentStream {
         AsyncThrowingStream { continuation in

@@ -26,6 +26,7 @@
 | [G-0002](./governance/G-0002-release-strategy.md) | main のみ + release-please、release ブランチ常設なし | Accepted |
 | [G-0003](./governance/G-0003-incomplete-code-integration.md) | 未完成コードは keystone 優先、flag は削除期限つき | Accepted |
 | [G-0004](./governance/G-0004-execution-modes.md) | 実行モードは承認駆動が既定、ループは条件+ガードレールつき | Accepted |
+| [G-0005](./governance/G-0005-actions-pinning.md) | GitHub Actions は full-length commit SHA へピン留め | Accepted |
 
 ## 書き方
 

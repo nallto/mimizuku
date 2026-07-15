@@ -1,10 +1,16 @@
 version: 2
 updates:
-  # GitHub Actions の自動更新(SHA ピン留めした action も更新される)。
+  # GitHub Actions の自動更新。全 action は commit SHA へピン留めする方針(G-0005)だが、
+  # Dependabot は SHA と末尾の版コメント(`# vX.Y.Z`)を追従更新する。
+  # groups: 週次のバンプを 1 PR に集約し、PR ノイズを抑える(#8 の反省)。
   - package-ecosystem: github-actions
     directory: /
     schedule:
       interval: weekly
+    groups:
+      github-actions:
+        patterns:
+          - "*"
   # Swift Package Manager の依存(ローカルパッケージ + 追加した remote 依存)。
   - package-ecosystem: swift
     directory: /Packages/MimizukuCore

@@ -48,4 +48,5 @@ nav:
       - G-0002 リリース戦略: adr/governance/G-0002-release-strategy.md
       - G-0003 未完成コード統合: adr/governance/G-0003-incomplete-code-integration.md
       - G-0004 実行モード: adr/governance/G-0004-execution-modes.md
+      - G-0005 Actions ピン留め: adr/governance/G-0005-actions-pinning.md
       - テンプレート: adr/template.md

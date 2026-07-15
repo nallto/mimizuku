@@ -20,9 +20,11 @@ actor SpeechEngine: TranscriptionEngine {
     private let stream: StreamKind
     private let logger: Logger
 
-    /// `prepare(locale:)` で解決・保持するロケールと transcriber(セッション間で再利用)。
+    /// `prepare(locale:)` で解決・保持するロケール。transcriber はセッションごとに新規生成
+    /// する(共有インスタンスを跨セッションで使い回すと、急速な stop→start で旧セッションの
+    /// finalize と新セッションの start が重なりうるため)。モデルアセットはシステム管理で
+    /// instance に紐づかない。
     private var locale: Locale?
-    private var transcriber: SpeechTranscriber?
 
     init(stream: StreamKind) {
         self.stream = stream
@@ -42,7 +44,7 @@ actor SpeechEngine: TranscriptionEngine {
     func prepare(locale: Locale) async throws {
         let resolved = await Self.resolvedLocale(for: locale)
         self.locale = resolved
-        let transcriber = transcriber(for: resolved)
+        let transcriber = Self.makeTranscriber(for: resolved)
 
         // 何も導入不要なら nil。要導入なら数百 MB のダウンロードを待つ。
         let request = try await AssetInventory.assetInstallationRequest(supporting: [transcriber])
@@ -58,7 +60,7 @@ actor SpeechEngine: TranscriptionEngine {
     func bestInputFormat() async -> AVAudioFormat? {
         let locale = locale ?? Locale(identifier: "ja-JP")
         return await SpeechAnalyzer
-            .bestAvailableAudioFormat(compatibleWith: [transcriber(for: locale)])
+            .bestAvailableAudioFormat(compatibleWith: [Self.makeTranscriber(for: locale)])
     }
 
     // MARK: - 文字起こし
@@ -85,7 +87,7 @@ actor SpeechEngine: TranscriptionEngine {
         into continuation: SegmentStream.Continuation
     ) async throws {
         let locale = locale ?? Locale(identifier: "ja-JP")
-        let transcriber = transcriber(for: locale)
+        let transcriber = Self.makeTranscriber(for: locale)
         let analyzer = SpeechAnalyzer(modules: [transcriber])
         let (inputSequence, inputContinuation) = AsyncStream.makeStream(of: AnalyzerInput.self)
 
@@ -126,16 +128,13 @@ actor SpeechEngine: TranscriptionEngine {
 
     // MARK: - Helpers
 
-    private func transcriber(for locale: Locale) -> SpeechTranscriber {
-        if let transcriber { return transcriber }
-        let created = SpeechTranscriber(
+    private static func makeTranscriber(for locale: Locale) -> SpeechTranscriber {
+        SpeechTranscriber(
             locale: locale,
             transcriptionOptions: [],
             reportingOptions: [.volatileResults],
             attributeOptions: [.audioTimeRange]
         )
-        transcriber = created
-        return created
     }
 
     /// Speech が対応する等価ロケールへ正規化(無ければ元のロケール)。

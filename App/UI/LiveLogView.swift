@@ -26,8 +26,9 @@ struct LiveLogView: View {
                             .textSelection(.enabled)
                             .frame(maxWidth: .infinity, alignment: .leading)
                     }
-                    // 現在の volatile 行(未確定)を薄く表示する。
-                    ForEach(controller.log.volatileLines) { segment in
+                    // 現在の volatile 行(未確定)を薄く表示する。ストリーム毎に 1 行なので
+                    // id はストリームで固定し、更新のたびの remove+insert を避ける。
+                    ForEach(controller.log.volatileLines, id: \.stream) { segment in
                         Text(segment.text)
                             .foregroundStyle(.secondary)
                             .frame(maxWidth: .infinity, alignment: .leading)

@@ -1,3 +1,4 @@
+import AppKit
 import MimizukuCore
 import SwiftUI
 
@@ -10,11 +11,29 @@ struct LiveLogView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            AssetStatusBanner(status: controller.assetStatus)
+            HStack(spacing: 8) {
+                AssetStatusBanner(status: controller.assetStatus)
+                copyAllButton
+            }
             Divider()
             transcript
         }
         .frame(minWidth: 360, minHeight: 240)
+    }
+
+    /// テスト用の一時 UI: 確定行の全文をクリップボードへコピーする(台本との照合用)。
+    /// メイン画面統合(S9)で選択ポップアップ等の恒久 UI に置き換えて退役する。
+    private var copyAllButton: some View {
+        Button {
+            let text = controller.log.finalized.map(\.text).joined(separator: "\n")
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString(text, forType: .string)
+        } label: {
+            Label("全文コピー", systemImage: "doc.on.doc")
+        }
+        .disabled(controller.log.finalized.isEmpty)
+        .controlSize(.small)
+        .padding(.trailing, 12)
     }
 
     private var transcript: some View {

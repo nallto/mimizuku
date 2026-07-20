@@ -1,92 +1,335 @@
 # 実装計画
 
-確定済みのスコープ判断(蒸し返さない。ADR 参照):
+2026-07-20 改訂(ADR-0005)。旧計画(Slice 0〜4)を 6 フェーズ・20 スライス + 8 判断タスクへ再編した。旧計画との対応は末尾「旧計画からの移行メモ」。
 
-- 順序: 音声 + 文字起こしを最優先で進める。
+## 確定済みのスコープ判断(蒸し返さない。ADR 参照)
+
+- プロダクト像: **録音・オンデバイス文字起こし・ノートを統合したメニューバー常駐アプリ**(ADR-0005)。録音は一級機能(旧「録音は任意・既定オフ」は廃止)。
+- 順序: **記録の完成を先行**(ADR-0005)。録音 + システム音声 + 両ソース同時 + 永続化を最初に完成させ、その後 UI → 検索/辞書 → AI → インポート → 公開。
 - 配布: OSS 公開、Developer ID + notarization(当面 App Store ではない)。
-- 利用形態: リアルタイム文字起こし(録音後一括ではなく、ライブ更新の議事ログ)。副次的にセッションのディスク録音。
+- AI 基盤: 翻訳は Translation framework、要約は FoundationModels(共に macOS 26 オンデバイス)で開始。ローカル/クラウド LLM へ差し替え可能なプロトコル抽象を設計する(判断 D7 / ADR-0010 予定)。
 - 最小ターゲット: macOS 26、Apple Silicon(ADR-0001)。
 - 構成: App ターゲット + 単一 SPM パッケージ `MimizukuCore`(ADR-0003)。契約は先に固定し、必要になったら分割する。
 
-ビルド順序は**縦切りスライス**。マイル→マイルではなく、マイク→文字起こしの薄い経路をまず端から端まで通し、そこから広げる。最もリスクの高い統合(Speech ストリーミング)を前倒しし、未検証の消費側に対して捕捉の配管を作る事態を避ける。
+ビルド順序は**縦切りスライス**。薄い経路をまず端から端まで通し、そこから広げる。リスクの高い統合(Speech ストリーミング、Core Audio tap)を前倒しする。複数の選択肢がある論点は、対象スライスの前に**判断タスク**(選択肢比較 → ユーザー判断 → ADR 化)として独立に置く。
 
----
+## プロダクト要件 → スライス対応表
 
-## Slice 0 — リポジトリ立ち上げ
+要件の取りこぼし検知用。全要件がいずれかのスライスに割当てられていること。
 
-タスク:
+| 要件 | スライス |
+|---|---|
+| メニューバー常駐 | S0(済) |
+| メニューバー表示で動作状況が判別できる | S2 |
+| 入力はマイク / スピーカー出力 / 両方を指定可能 | S3, S4 |
+| マイク・スピーカー音声の録音 | S2, S3, S4 |
+| リアルタイム文字起こし | S1(済・未マージ), S4 |
+| リアルタイム翻訳(原文・訳文セット表示) | S15, S16 |
+| メイン画面 3 ペイン(左=一覧 / 中央=波形+文字起こし / 右=サブペイン) | S6 |
+| ファイル一覧(名前・日時・長さ・タグ・ステータス)とフィルタ | S6, S10 |
+| 音量ベースの波形グラフ | S8 |
+| 再生位置の強調表示・自動スクロール・経過時間 | S7, S8 |
+| 再生速度の変更 | S7 |
+| 範囲選択ポップアップ(コピー/手修正/辞書登録/翻訳/システム辞書/Web検索) | S11, S14, S15 |
+| 右ペイン(要約・TODO・メモ・付帯情報、拡張しやすい構成) | S12, S17 |
+| アプリ内辞書による精度向上 | S14 |
+| 録音ファイルからの再文字起こし | S18 |
+| 横断検索(ファイル名・前後文脈・強調・ジャンプ) | S13 |
+| 動画・音声ファイルのインポート → 文字起こし・要約 | S19 |
+| ローカル/クラウド LLM へ切り替えやすい設計 | S15(D7 / ADR-0010) |
+| OSS 公開(署名・notarize・Homebrew) | S20 |
 
-1. 名称は `Mimizuku`(確定。正式な商標クリアランスは保留、ADR-0002)。旧仮名の残存が無いか確認: `grep -ri menuscribe .` が何も返さないこと。
-2. リポジトリ直下に Xcode App プロジェクトを作成: SwiftUI、`MenuBarExtra`、`LSUIElement = YES`、bundle id は開発者チーム配下、デプロイターゲット 26.0、Swift 6 言語モード、strict concurrency = complete。
-3. `Packages/MimizukuCore` をローカルパッケージ依存として App ターゲットに追加する。
-4. Info.plist の usage string を今のうちに追加(後段すべての前提になる): `NSMicrophoneUsageDescription`、`NSAudioCaptureUsageDescription`(Xcode のドロップダウンに無い ―― キーを手入力する)、Speech API が要求するなら `NSSpeechRecognitionUsageDescription`。
-5. CI が `macos-26` で green であることを確認(パッケージテストのみ)。
+## フェーズとスライス概観
 
-受け入れ: 空のアプリが起動しメニューバーアイコンを出す。`swift test` がローカルと CI で green。
+| # | タイトル | 依存 | 先行判断 | 状態 |
+|---|---|---|---|---|
+| **フェーズ 1 — 記録の完成** | | | | |
+| S0 | リポジトリ立ち上げ | — | — | 完了(#6) |
+| S1 | マイク → ライブ文字起こし | S0 | — | 実装済・未マージ(#9) |
+| S2 | セッション録音 + AudioRouter + メニューバー状態表示 | S1 | D1 | 未着手 |
+| S3 | システム音声 tap ソース | S2 | — | 未着手 |
+| S4 | デュアルストリーム + 権限診断 | S3 | — | 未着手 |
+| S5 | 文字起こし永続化 + セッションモデル | S2 | D2 | 未着手 |
+| **フェーズ 2 — メイン画面** | | | | |
+| S6 | 3 ペイン骨格 | S5 | D3 | 未着手 |
+| S7 | 再生 | S6 | — | 未着手 |
+| S8 | 波形表示 | S7 | D4 | 未着手 |
+| S9 | ライブセッション統合 | S6 | — | 未着手 |
+| S10 | タグ・ステータス・フィルタ | S6 | (D2) | 未着手 |
+| S11 | 選択ポップアップ v1 + 手修正 | S6 | D8(PR 内) | 未着手 |
+| S12 | 右ペイン骨格 | S6 | — | 未着手 |
+| **フェーズ 3 — 検索・辞書** | | | | |
+| S13 | 横断検索 | S6 | D5 | 未着手 |
+| S14 | アプリ内辞書 | S11 | D6 | 未着手 |
+| **フェーズ 4 — AI** | | | | |
+| S15 | AI 抽象レイヤ + オンデマンド翻訳 | S11 | D7 | 未着手 |
+| S16 | リアルタイム翻訳 | S15, S9 | — | 未着手 |
+| S17 | 要約・TODO 抽出 | S12, S15 | — | 未着手 |
+| **フェーズ 5 — ファイル入力** | | | | |
+| S18 | 録音ファイルの再文字起こし | S14, S5 | — | 未着手 |
+| S19 | 動画・音声ファイルのインポート | S18 | — | 未着手 |
+| **フェーズ 6 — 公開** | | | | |
+| S20 | OSS リリース | フェーズ 1〜2 | — | 未着手 |
 
-## Slice 1 — マイク → ライブ文字起こし(薄い端から端まで)
+S5 以降、S9〜S13 は相互にほぼ独立で並行着手できる。1 スライス = 1 Issue = 1 PR(AGENTS.md)。
 
-タスク:
+## 判断タスク(D1〜D8)
 
-1. `MicrophoneSource: AudioSource` を `AVAudioEngine` の入力 tap で実装。ソースで`SpeechAnalyzer.bestAvailableAudioFormat(compatibleWith:)` へ変換する。
-2. `SpeechEngine: TranscriptionEngine` を `SpeechAnalyzer` + `SpeechTranscriber(locale: ja-JP)`でラップ:
-   - `prepare(locale:)` は `SpeechTranscriber.installedLocales` / `AssetInventory.assetInstallationRequest` + `downloadAndInstall()`。
-   - `.volatileResults` を有効化し、結果を `TranscriptSegment` にマップ(volatile → `isFinal = false`、確定セグメントが置き換える)。
-3. 最小のライブ議事ログウィンドウ: 確定行を追記し、現在の volatile 行を下部に薄く描画。メニューバーから開始/停止。
-4. モデルアセットの状態を UI に表示(未導入 / ダウンロード中 / 準備完了)。
+実装スライスの前に、選択肢の良し悪しを明確にした上でユーザー判断を仰ぎ、ADR に記録する。判断タスクも Issue 化する(`decision` ラベル)。
+
+### D1 — 録音ファイル形式と保存レイアウト(S2 前)→ ADR-0006
+
+- 形式: (a) WAV/CAF(PCM)— 追記に強くクラッシュ耐性が高いがサイズ大(48kHz/16bit/mono で約 330MB/h)。(b) AAC(.m4a)— 約 1/10 サイズだが異常終了時のヘッダ破損リスク。(c) 録音中は CAF + 停止時に AAC 変換 — 安全とサイズの両立、変換コストと一時容量が代償。
+- レイアウト: ストリーム毎 2 ファイル(mic / system)か、停止時にミックスも生成するか。セッションディレクトリの命名・構成もここで確定する。
+- `TranscriptSegment.start/end` の時刻原点(セッション開始基準)の仕様化を含む(S7 の再生ハイライトの前提)。
+
+### D2 — セッションメタデータの保存形式(S5 前)→ ADR-0007
+
+- (a) 文字起こし Markdown の YAML frontmatter — 人間可読・1 ファイル完結・外部ツール(Obsidian 等)互換。パーサ自作、部分更新=全書き換え、外部編集への寛容さが必要。
+- (b) サイドカー JSON(`meta.json`)— Codable 直結で堅牢。ファイル数増、外部ツール互換低。
+- (c) SQLite インデックス — 一覧・フィルタ・検索が速いが「正典はファイルか DB か」の二重管理リスク。
+- 有力評価軸: 「ファイル(frontmatter)を正典、SQLite は再構築可能なキャッシュ」のハイブリッド。検索方式(D5)と併せて判断。
+
+### D3 — 3 ペイン UI のナビゲーション構成(S6 前)→ ADR-0008
+
+- (a) `NavigationSplitView`(sidebar + detail)+ `.inspector` — macOS 標準の 3 ペイン。折りたたみ・表示切替・状態保存が標準で付く。右ペイン=inspector のセマンティクスが要件と一致(有力)。
+- (b) 3 カラム `NavigationSplitView` — content 列は「選択リスト」の意味論で、中央=波形+文字起こしの用途とずれる。
+- (c) `HSplitView` 手組み — 自由度最大だが標準挙動を自作する負担。
+- 併せて `MenuBarExtra` + `Window` シーン共存、`LSUIElement` 下でのウィンドウ前面化の挙動を確認する。
+
+### D4 — 波形の生成・描画方式(S8 前)→ ADR-0009
+
+- 生成: (a) 録音中に逐次 RMS/ピーク計算して保存 — 追加コスト最小、ライブ波形にも流用可(有力)。(b) 初回表示時にファイルから計算 + キャッシュ — 録音経路が単純、初回表示が重い。
+- 描画: SwiftUI `Canvas` + デシメーション済み配列(数千点なら十分)vs CALayer/Metal(ズーム・長尺で有利だが複雑)。ズーム対応するなら解像度ピラミッドをここで決める。サードパーティ依存は追加しない。
+
+### D5 — 全文検索方式(S13 前)→ ADR-0011
+
+- (a) 起動時ロード + インメモリ線形走査 — 実装最小。個人利用の数百セッション・数 MB テキストなら十分速い見込み(有力。移行閾値を ADR に明記して出荷)。
+- (b) SQLite FTS5 — スケールするが日本語トークナイズ(trigram 等)の設計が必要。D2 で SQLite キャッシュを選ぶなら相乗り。
+- (c) Spotlight(`CSSearchableIndex`)— 実装は楽だが文字起こし内容を OS 索引へ渡すプライバシー整理が必要。
+
+### D6 — アプリ内辞書の Speech への適用方法(S14 前)→ ADR-0012
+
+- 前提調査(**要実機確認**): macOS 26 の `SpeechTranscriber` / `SpeechAnalyzer` にカスタム語彙・コンテキスト文字列 API(旧 `SFSpeechRecognizer.contextualStrings` 相当)が存在するか。
+- (a) Speech の語彙ヒント API(存在すれば)— 認識自体が改善し最良。(b) 確定セグメントへの後処理置換(Core 純ロジック、CI テスト可)— 確実に動くが音写ゆれに弱い。(c) 両方 — 後処理は常設 + API はあれば追加(有力)。
+
+### D7 — AI バックエンド抽象とデバイス外送信の条件(S15 前)→ ADR-0010
+
+- プロトコル粒度: (a) 機能別(`TranslationService` / `SummarizationService`)— 型安全で、LLM でない Translation framework とも整合(有力)。(b) 汎用 `TextGenerationService` + プロンプト — バックエンド追加は一括だが Translation を LLM 形に潰すことになる。
+- **ハード制約 #2(音声・文字起こしをデバイス外に出さない)との整合**: クラウド LLM は正面衝突する。緩和するなら「既定は完全オンデバイス、クラウドはセッション単位の明示オプトイン + 送信内容の可視化」等の条件自体をユーザー判断で決め、AGENTS.md のハード制約を同一 PR で改訂する。
+- 前提調査(**要実機確認**): `TranslationSession` が `.translationTask` modifier(SwiftUI ライフサイクル)経由でしか得られないか。真なら Apple 実装は App 側の薄いブリッジになる(プロトコルを Core に置く設計はこれを吸収するため)。
+
+### D8 — 手修正の保存モデル(S11 の PR 内で決定)
+
+- 原文を直接置換(単純、再文字起こしで消える)vs 修正レイヤ(原文保持、再文字起こし後に再適用可能だが複雑)。S18(再文字起こし)と相互作用するため、S11 の PR 内で方針を明記する(必要なら ADR 昇格)。
+
+## スライス詳細
+
+### フェーズ 1 — 記録の完成
+
+完了条件: 録音(音声ファイル)+ 両ソース + 文字起こしがディスク上に完全な形で残る。
+
+#### S1 — マイク → ライブ文字起こし(実装済・未マージ)
+
+現ブランチ `feat/9-mic-transcription` の内容をそのまま着地させる: `MicrophoneSource: AudioSource`(AVAudioEngine 入力 tap)、`SpeechEngine: TranscriptionEngine`(SpeechAnalyzer + SpeechTranscriber ja-JP、`.volatileResults`)、`TranscriptLog`(Core、テスト済)、`AudioSessionController`、`LiveLogView`、`ModelAssetStatus`。
 
 受け入れ: 日本語で 5 分以上話す。数秒以内に文字起こしが更新される。volatile が確定へ収束する様子が見える。開始/停止を繰り返しても audio engine 状態が漏れない。
 
-> ここで一区切り: Slice 2 に進む前に、実会議音声で日本語の品質を評価する判断を挟む。
+> ここで一区切り: S2 に進む前に、実会議音声で日本語の品質を評価する判断を挟む。
 
-## Slice 2 — システム音声 tap + デュアルストリーム
+#### S2 — セッション録音 + AudioRouter + メニューバー状態表示
 
-タスク:
+1. `AudioRouter`(App): 1 つの `AudioSource` を複数消費者(文字起こし + ファイル書き込み)へファンアウト。`AudioSource` は cold・単一消費者契約なので、ルーターがバッファをコピーして `sending` で配る(domain-pitfalls #9 の一般化)。録音消費者はドロップ禁止(欠落=データ喪失)— バッファリングポリシーと逆圧をここで明示設計する。
+2. `SessionRecorder`(actor、Core): `AVAudioFile` でストリーム毎に書き出し(D1 の形式・レイアウトに従う)。`AVAudioFile` は Sendable でないため actor 内に閉じ込め、外にはファイル URL と進捗値のみ出す。合成バッファで CI テスト可能。
+3. セッションディレクトリの作成(`~/Library/Application Support/Mimizuku/sessions/<timestamp>/`、詳細は D1)。
+4. メニューバーアイコンの状態表示: 待機 / 録音中 / エラー(#25 を吸収)。
 
-1. `SystemAudioTapSource: AudioSource`:
-   - `CATapDescription(stereoGlobalTapButExcludeProcesses: [])`。以後 `isExclusive` に触らない(意味反転の罠、domain-pitfalls #1)。
-   - `AudioHardwareCreateProcessTap` → tap をサブ tap とする aggregate device (`kAudioAggregateDeviceTapListKey`、private aggregate、tap 自動開始)を現在の既定出力デバイスに紐付ける。
-   - `AudioDeviceCreateIOProcIDWithBlock` で消費(AVAudioEngine ではない ―― 向け直しは無言で失敗、domain-pitfalls #2)。
-2. ゼロサンプル watchdog: tap が名目上稼働中に N 秒連続で厳密に 0.0f のサンプルなら、ストリームから throw。ルーターは tap と aggregate device の**両方**を破棄・再作成して再購読する(domain-pitfalls #3)。
+受け入れ: 録音開始→停止で再生可能な音声ファイルが残る。録音中の `kill -9` でもファイルが復元可能(または欠損が末尾数秒以内)。メニューバーアイコンが 3 状態を反映する。
+
+#### S3 — システム音声 tap ソース
+
+1. `SystemAudioTapSource: AudioSource`: `CATapDescription(stereoGlobalTapButExcludeProcesses: [])`(以後 `isExclusive` に触らない、domain-pitfalls #1)→ `AudioHardwareCreateProcessTap` → private aggregate device → `AudioDeviceCreateIOProcIDWithBlock` で消費(AVAudioEngine の向け直しは無言で失敗、domain-pitfalls #2)。
+2. ゼロサンプル watchdog: 稼働中に N 秒連続で厳密に 0.0f ならストリームから throw。ルーターは tap と aggregate device の**両方**を破棄・再作成して再購読(domain-pitfalls #3)。
 3. 既定出力デバイスの変更(サンプルレート再交渉、AirPods の sleep/wake)に再構築で対応(watchdog と同じ経路)。
-4. 音声捕捉の TCC 事前プローブ + 権限診断画面(マイク / システム音声 / モデルアセットを、状態と修正アクションつきで)。
-5. システムストリーム用の 2 つ目の `SpeechEngine` セッション。UI は 2 つのセグメントストリームを1 本のタイムラインでマージし、「自分」/「相手」でラベル付け。
+4. UI は「入力ソース: マイク / システム音声」の単独切替でまず動かす(同時は S4)。録音・文字起こしは S2 の経路に乗る。
 
-受け入れ: ビデオ通話(または任意の音声)を再生しながら話す。両者が正しくラベル付けされて議事ログに出る。セッション中のヘッドホン抜き差しから自動回復する。60 分の soak run で無音の欠落が無い。
+受け入れ: 動画再生音声が文字起こし・録音される。ヘッドホン抜き差しから自動回復。60 分 soak で無音の欠落が無い。
 
-## Slice 3 — 永続化とエクスポート
+#### S4 — デュアルストリーム + 権限診断
 
-タスク:
+1. マイク / システム音声の**同時**捕捉: `SpeechEngine` 2 セッション + ストリーム毎の録音ファイル。モデルアセットの `AssetInventory` 操作が並行しないよう prepare を直列化する。
+2. `TranscriptLog` はストリーム独立設計済み。UI は 1 本のタイムラインへマージし「自分」/「相手」でラベル付け(diarization はしない、domain-pitfalls #7)。
+3. 入力ソース選択 UI(マイクのみ / システムのみ / 両方)。
+4. TCC 事前プローブ + 権限診断画面(マイク / システム音声 / モデルアセットを、状態と修正アクションつきで)。
 
-1. セッションモデル: `~/Library/Application Support/<app>/sessions/<timestamp>/` にセッション毎に1 ディレクトリ。
-2. 確定 `TranscriptSegment` の append-only JSONL(クラッシュ安全: write-through)。
-3. ストリーム毎の生音声録音(任意、AVAudioFile、既定オフ。設定は明示ラベル ―― 既定の姿勢は「文字起こしのみ」)。
-4. エクスポート: タイムスタンプと話者ラベル付きの Markdown / プレーンテキスト。
-5. 保持設定: N 日より古いセッションを自動削除(既定: 削除しない)。
+受け入れ: 通話(または音声再生)しながら話すと両者が正しくラベル付けされる。両ソースの録音ファイルが時刻同期している(先頭オフセット誤差が実用範囲)。
 
-受け入れ: セッション中の `kill -9` で失うのは最大でも現在のセグメントのみ。60 分セッションのエクスポートが整形されている。
+#### S5 — 文字起こし永続化 + セッションモデル
 
-## Slice 4 — OSS リリース
+1. 確定 `TranscriptSegment` の write-through 追記(クラッシュ安全。中間は append-only JSONL + 停止時に最終形式へ整形、等の構成は D2 で判断)。
+2. `SessionStore`(Core): セッションの列挙・読み込み・保存。メタデータ(タイトル・日時・長さ・タグ・ステータス)の読み書きは D2 の形式で。
+3. タイムスタンプ・話者ラベル付き Markdown / プレーンテキストのエクスポート。
+4. `TranscriptSegment.start/end` の時刻原点(セッション開始基準)をデータ仕様として固定(S7 の前提)。
 
-タスク:
+受け入れ: セッション中の `kill -9` で失うのは最大でも現在のセグメントのみ。再起動後にセッションの文字起こしと音声が読める(UI は暫定でよい)。60 分セッションのエクスポートが整形されている。
 
-1. README(公開向け英語版): 要件(macOS 26 / Apple Silicon を最初の画面で)、スクリーンショット付き権限ウォークスルー、プライバシー声明(全オンデバイス・ネットワークなし)、既知の制約(diarization なし)、録音同意の免責。
+### フェーズ 2 — メイン画面
+
+UI 作業は着手前に `.claude/skills/macos-ui-design/SKILL.md` を読む。
+
+#### S6 — 3 ペイン骨格
+
+D3 の決定に従う構成(候補: `NavigationSplitView` + `.inspector`)。左=セッション一覧(名前・日時・長さ)、中央=保存済み文字起こしの閲覧(読み取り専用)、右=空の inspector プレースホルダ。メニューバーから「メインウィンドウを開く」。`MenuBarExtra` + `Window` シーンの共存(`LSUIElement` 下の前面化)を確認。
+
+受け入れ: 過去セッションを一覧から選んで文字起こしを読める。
+
+#### S7 — 再生
+
+音声再生(2 ファイル同期再生が必要なら `AVAudioEngine` + `AVAudioPlayerNode` 2 本、単一なら `AVPlayer` — D1 の結果に依存)。再生位置 → 該当セグメントの強調表示・自動スクロール(`TranscriptSegment.start/end` を利用)、経過時間 / 総時間表示、再生速度変更(0.5x〜2x、ピッチ補正)。再生位置の観測は @MainActor の周期観測。
+
+受け入れ: 再生に追随してハイライトが移動する。セグメントクリックでシーク。速度変更でピッチが破綻しない。
+
+#### S8 — 波形表示
+
+D4 の決定に従う。音量ベース波形(RMS/ピークのデシメーション)。録音中に逐次計算してキャッシュする設計を軸に検討(ライブ表示にも流用)。`WaveformDecimator` は Core の純ロジックとして CI テスト。再生位置カーソル、クリックシーク。長時間ファイルの全サンプル読み込みは禁止(必ずデシメーション経由)。
+
+受け入れ: 3 時間録音でも一覧選択から 1 秒以内に波形表示。再生カーソルが 30fps 以上で滑らか。
+
+#### S9 — ライブセッション統合
+
+録音中セッションをファイル一覧の先頭に「録音中」として表示し、中央ペインでライブ文字起こし(確定 + volatile dimmed)とライブ波形(S8 完了後)を表示。`LiveLogView` を退役させ、表示ロジックをメイン画面へ移管。肥大化した `AudioSessionController` を `RecordingController` / `LibraryModel` / `PlaybackController` へ分割する。
+
+受け入れ: 録音開始 → メインウィンドウで進行が見える → 停止すると通常セッションに変わる。
+
+#### S10 — タグ・ステータス・フィルタ
+
+セッションへのタグ付け・ステータス(例: 未処理 / 文字起こし済 / 要約済 / アーカイブ)管理(D2 の形式で保存)。ファイル一覧でのタグ・ステータス表示、フィルタ UI(タグ / ステータス / 日付範囲 / ファイル名)。フィルタロジックは Core でテスト。
+
+受け入れ: タグ付け → 再起動 → 保持されている。フィルタで一覧が絞れる。
+
+#### S11 — テキスト選択ポップアップ v1 + 手修正
+
+文字起こしテキストの範囲選択でポップアップ: コピー / 手修正 / システム辞書検索 / Web 検索。手修正はセグメントテキストの編集と永続化(保存モデルは D8)。「アプリ内辞書登録」「翻訳」はメニュー項目だけ予約し、S14 / S15 で有効化。
+
+受け入れ: 修正が保存され再起動後も反映。辞書検索・Web 検索アクションが機能する。
+
+#### S12 — 右ペイン骨格
+
+右 inspector をセクション式(要約 / TODO / メモ / 付帯情報)にし、セクション追加が 1 型の追加で済む構造にする。メモ欄(自由記述、永続化)と TODO 欄(チェックリスト、手動追加)を実装。要約セクションは「未生成」プレースホルダ(S17 で埋める)。
+
+受け入れ: メモ・TODO が保存される。セクション追加が 1 型追加で済む構造になっている。
+
+### フェーズ 3 — 検索・辞書
+
+#### S13 — 横断検索
+
+D5 の決定に従う。全セッション横断のテキスト検索(ファイル名 + 本文)。結果は前後文脈付きスニペット + ヒット強調、選択で該当ファイル・該当位置へジャンプ。検索ロジック(クエリ → マッチ → スニペット生成)は Core でテスト。
+
+受け入れ: 100 セッション規模で体感即時(<300ms)。日本語クエリが部分一致でヒットする。
+
+#### S14 — アプリ内辞書
+
+D6 の決定に従う。辞書エントリ(誤認識表記 → 正表記、固有名詞)の管理 UI。適用は後処理置換 `DictionaryRules`(Core、純ロジックでテスト)+ Speech の語彙 API(D6 調査次第で併用)。ポップアップメニューの「辞書登録」を有効化(選択テキストから即登録)。
+
+受け入れ: 登録した固有名詞が以後の文字起こしで正しく出る(または後処理で正される)。
+
+### フェーズ 4 — AI
+
+#### S15 — AI 抽象レイヤ + オンデマンド翻訳
+
+D7 / ADR-0010 に従い、Core に `TranslationService` / `SummarizationService` プロトコル(フレームワーク型を含めない Sendable な値型契約)を定義。App に Translation framework 実装。まずオンデマンド翻訳: 選択範囲の翻訳(ポップアップ)+ セッション全体の一括翻訳(原文と訳文のペア保存・ペア表示)。言語モデルのダウンロード状態 UI(`ModelAssetStatus` パターンを流用)。
+
+受け入れ: ja→en / en→ja の翻訳が完全オフラインで動く。fake 実装差し替えで Core のペアリングロジックがテストできる。
+
+#### S16 — リアルタイム翻訳
+
+翻訳有効時、確定セグメントを逐次翻訳し原文とセットでライブ表示(volatile は翻訳しない — domain-pitfalls #6 の応用)。`TranscriptLog` を原文/訳文ペア対応に拡張(Core、テスト)。翻訳の遅延・失敗時は原文のみ表示に劣化し、文字起こしは止めない。
+
+受け入れ: 英語音声を再生しながら日本語訳がライブで追記される。翻訳失敗でも文字起こしは継続する。60 分 soak で CPU/熱が実用範囲(Activity Monitor 計測)。
+
+#### S17 — 要約・TODO 抽出
+
+FoundationModels 実装(App)。`SystemLanguageModel.availability` チェック(Apple Intelligence 無効環境への案内 UI)。長文はチャンク分割 → 部分要約 → 統合(map-reduce、分割ロジックは Core でテスト)。右ペインの要約・TODO セクションに生成結果を表示・保存、再生成ボタン。ステータス(D2)を「要約済」へ連動。**冒頭に実議事録での日本語品質スパイクを実施**し、実用未満なら D7 の抽象経由でローカル LLM 検討を前倒しする。
+
+受け入れ: 60 分の日本語議事録から要約と TODO 候補が生成・保存される。Apple Intelligence 無効環境で明確な案内が出る。
+
+### フェーズ 5 — ファイル入力
+
+#### S18 — 録音ファイルの再文字起こし
+
+既存セッションの音声ファイルを `SpeechAnalyzer` のファイル入力で再解析(辞書登録後・モデル更新後のやり直し)。既存文字起こしの置換確認 UI(手修正を上書きする警告 — D8 の保存モデルに依存)。進捗表示。ステータス連動。ファイル入力時の volatile 挙動の差異は実装時に検証し domain-pitfalls へ記載。
+
+受け入れ: 辞書登録 → 再文字起こしで表記が改善する。手修正の消失が黙って起きない。
+
+#### S19 — 動画・音声ファイルのインポート
+
+Finder ドラッグ&ドロップ / ファイル選択で動画・音声をインポート。`AVAsset` から音声トラック抽出 → セッション形式へ変換(D1 レイアウトに「インポート元」情報を追加)→ 再文字起こし経路(S18)→ 要約(S17)。非対応コーデックは可読性チェックで明示エラー。
+
+受け入れ: mp4 / mov / m4a / wav / mp3 をインポートして文字起こし・要約・検索の対象になる。
+
+### フェーズ 6 — 公開
+
+#### S20 — OSS リリース
+
+1. README(公開向け英語版): 要件(macOS 26 / Apple Silicon)、スクリーンショット付き権限ウォークスルー(新 3 ペイン UI ベース)、プライバシー声明(既定で全オンデバイス。クラウドオプトインを導入した場合は ADR-0010 の決定を反映)、既知の制約(diarization なし)、録音同意の免責。
 2. CONTRIBUTING + DCO、Issue テンプレート(バグ報告は `sw_vers`・音声デバイス・診断画面のスクリーンショットを要求)。
 3. 法務レビュー後に ADR-0002 を Accepted へ倒し、LICENSE を追加。
-4. リリース workflow: タグ → ビルド → Developer ID 署名(証明書は GitHub Secrets)→ `notarytool` 提出 + staple → GitHub Release アセット。注意: TCC プロンプトは正しく署名されたビルドでのみ機能する。未署名成果物を出荷しない。
+4. リリース workflow: タグ → ビルド → Developer ID 署名 → `notarytool` 提出 + staple → GitHub Release。未署名成果物を出荷しない(domain-pitfalls #4)。
 5. Homebrew cask。
 
-受け入れ: 新品の macOS 26 マシンの見知らぬ人が `brew install --cask` でインストールし、アプリの案内で権限を付与し、ソースを読まずに文字起こしを得られる。
+受け入れ: 新品の macOS 26 マシンの見知らぬ人が `brew install --cask` でインストールし、アプリの案内で権限を付与し、ソースを読まずに文字起こしを得られる。フェーズ 1〜2 完了が最低ライン(フェーズ 3〜5 の完了は必須としない — リリース時期は別途判断)。
 
----
+## アーキテクチャ方針
+
+- **MimizukuCore に置く**(UI・TCC 非依存 = CI でテスト可能): 既存の契約と `TranscriptLog` に加え、セッションモデル(`Session` / メタデータ / タグ / ステータス)、メタデータコーデック(D2)、`SessionStore`、`SessionRecorder`(AVAudioFile 書き込み。合成バッファで CI テスト可)、`WaveformDecimator`、`DictionaryRules`、検索ロジック、`TranslationService` / `SummarizationService` プロトコル、要約チャンク分割、フィルタロジック。
+- **App に置く**: 捕捉(`MicrophoneSource` / `SystemAudioTapSource` / `AudioRouter`)、`SpeechEngine`、Translation / FoundationModels 実装、再生(@MainActor)、全 UI、TCC プローブ・診断。
+- **パッケージ分割の時期**(ADR-0003 の「必要時分割」): ローカル LLM(外部依存)を導入する時は `MimizukuAI` を**必ず**別パッケージにして外部依存を Core から隔離。永続化・検索のテスト都合で必要になれば `MimizukuStore` を切り出す。フェーズ 4 開始時に再評価。
+
+## 実装済みコードの再利用マップ
+
+| 既存コード | 行き先 |
+|---|---|
+| `AudioSource.swift`(AudioSource / StreamKind) | S1 で着地。S3 で `SystemAudioTapSource` が実装を追加 |
+| `TranscriptionEngine.swift`(TranscriptSegment / TranscriptionEngine) | S1 着地。S14 で語彙、S18 でファイル入力を拡張 |
+| `TranscriptLog.swift` + テスト | S1 着地。S16 で原文/訳文ペア対応に拡張 |
+| `App/Capture/MicrophoneSource.swift` | S1 着地。S2 で AudioRouter 経由の消費に変わる |
+| `App/Transcription/SpeechEngine.swift` | S1 着地。S4 で 2 セッション並行、S14/S18 で拡張 |
+| `App/Session/AudioSessionController.swift` | S1 着地。S2・S4 で成長し、S9 で Recording / Library / Playback へ分割 |
+| `App/UI/LiveLogView.swift` | S1〜S8 の間は現役。S9 でメイン画面に吸収・退役 |
+| `ModelAssetStatus.swift` | S1 着地。S15(翻訳モデル)・S17(FoundationModels 可用性)で同パターンを横展開 |
 
 ## リスク登録簿
 
 | リスク | 可能性 | 影響 | 緩和策 |
 |---|---|---|---|
-| macOS 26 の tap が長時間でゼロサンプル劣化 | 実地で観測 | 無言のデータ欠落 | watchdog + 完全再構築(Slice 2 task 2)、受け入れで soak test |
-| Swift 6 での `AVAudioPCMBuffer` sendability | 必ず表面化 | ビルド摩擦 / 不安全な近道 | Slice 1 で copy vs `sending` を決定、無言の `@unchecked` を禁止 |
-| ja-JP 文字起こし品質が期待未満 | 不明 | プロダクト価値 | Slice 1 終了時に実会議音声で評価してから Slice 2 へ |
-| 未署名 dev ビルドで TCC プロンプトが出ない | よくある罠 | デバッグ時間の浪費 | domain-pitfalls #4 に記載、診断画面で TCC 状態を明示 |
+| macOS 26 の tap が長時間でゼロサンプル劣化 | 実地で観測 | 無言のデータ欠落 | watchdog + 完全再構築(S3)、受け入れで soak test |
+| Swift 6 での `AVAudioPCMBuffer` sendability | 必ず表面化 | ビルド摩擦 / 不安全な近道 | copy + `sending` で解決済(S1)、ファンアウトでも同方針(S2)、無言の `@unchecked` を禁止 |
+| ja-JP 文字起こし品質が期待未満 | 不明 | プロダクト価値 | S1 終了時に実会議音声で評価してから S2 へ |
+| 未署名 dev ビルドで TCC プロンプトが出ない | よくある罠 | デバッグ時間の浪費 | domain-pitfalls #4、診断画面で TCC 状態を明示(S4) |
 | 副業への雇用・IP 主張 | 不明 | 公開のブロック | ADR-0002 の残タスクが初回公開 push のゲート |
 | OS 更新で Speech/tap 挙動が壊れる | 中 | 全ユーザーに影響 | `macos-26` CI がコンパイル破壊を検知、README で既知良好 OS ビルドを明記 |
+| 長時間録音のファイルサイズ(PCM で GB 級) | 高 | ディスク圧迫 | D1 で圧縮形式 or 2 段変換を決定。保持設定(自動削除)を将来スライス候補に |
+| 波形描画パフォーマンス(3h 録音) | 高 | UI 応答性 | 録音中の逐次デシメーション + キャッシュ(D4)。受け入れに表示 1 秒以内を明記(S8) |
+| FoundationModels のコンテキスト長制限 | 高(仕様) | 要約の網羅性 | チャンク分割 map-reduce を S17 の必須要件に。分割ロジックは Core でテスト |
+| FoundationModels の日本語要約品質が実用未満 | 不明 | 要約機能の価値 | S17 冒頭に品質スパイク。不足なら D7 の抽象経由でローカル LLM を前倒し |
+| Apple Intelligence 無効環境で要約が使えない | 中 | 機能の可用性 | availability 分岐と案内 UI を S17 受け入れ条件に |
+| Translation の言語ペア制約 / `TranslationSession` の SwiftUI 依存 | 中 | 翻訳機能の設計 | D7 で実機調査を先行。プロトコル抽象で実装差し替え可能に |
+| 2 ソース同時 + 録音 + 文字起こし + 翻訳の CPU/熱負荷 | 中 | 長時間セッションの安定性 | S16 受け入れに 60 分 soak(Activity Monitor 計測) |
+| 再生位置と文字起こしタイムスタンプの同期ずれ | 中 | ハイライト UX | S5 で時刻原点を仕様化、S7 受け入れで実測 |
+| メタデータの外部編集による破損(frontmatter 採用時) | 中 | データ読込失敗 | 寛容パーサ + 破損時は音声・JSONL から再構築(D2) |
+| 検索の日本語トークナイズ(FTS 採用時) | 中 | 検索精度 | D5 で trigram 等を比較。まず線形走査で回避 |
+| インポート動画の非対応コーデック | 中 | インポート失敗 | AVAsset 可読性チェックと明示エラー(S19) |
+
+Translation / FoundationModels / 波形 / ファイル入力の罠は、各調査・実装時に確定情報として `docs/domain-pitfalls.md` へ追記する(推測では書かない)。
+
+## 旧計画からの移行メモ(2026-07-20、ADR-0005)
+
+| 旧 | 新 | Issue の処置 |
+|---|---|---|
+| Slice 0(リポジトリ立ち上げ) | S0 | 完了済(#6) |
+| Slice 1(マイク→ライブ文字起こし) | S1(内容同一) | #9 を継続、実装済みブランチをそのまま着地 |
+| Slice 2(システム音声 tap + デュアルストリーム) | S3 + S4 に分割 | #10 をクローズし新 Issue へリンク |
+| Slice 3(永続化とエクスポート) | S2 + S5 に再編(録音は一級機能化、保持設定は将来スライスへ) | #11 をクローズし新 Issue へリンク |
+| Slice 4(OSS リリース) | S20(内容同一、スクリーンショットは新 UI) | #12 をクローズし新 Issue へリンク |
+| —(旧計画に無し) | S6〜S19(メイン画面・検索・辞書・AI・インポート) | 新規起票 |
+| #25(メニューバーアイコンで録音中を視認) | S2 に吸収 | S2 の Issue へリンクしてクローズ |

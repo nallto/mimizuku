@@ -19,14 +19,16 @@ public enum StreamKind: String, Sendable, Codable, CaseIterable {
 ///   所有権を移譲(`sending`)すること。Swift 6 strict concurrency では実装時に
 ///   明示的に解決する。ADR への記載なしに `@unchecked` で握りつぶさない
 ///   (docs/domain-pitfalls.md #9)。
-/// - 実装は文字起こし器の推奨フォーマット
-///   (`SpeechAnalyzer.bestAvailableAudioFormat(compatibleWith:)`)へ変換済みの
-///   バッファを流し、下流で再サンプリングが起きないようにする。
+/// - 実装はデバイスの **native フォーマットのまま**バッファを流す(録音は native 品質で
+///   行うため。ADR-0006)。文字起こし器の推奨フォーマット
+///   (`SpeechAnalyzer.bestAvailableAudioFormat(compatibleWith:)`)への変換は、
+///   文字起こし経路(App の `AudioRouter` / `BufferConverter`)の責務。
+/// - フォーマットは各バッファ(`AVAudioPCMBuffer.format`)が運ぶ。ソースに事前照会用の
+///   プロパティは置かない ―― 捕捉開始前のハードウェア照会(`inputNode.outputFormat` 等)は
+///   デバイス状態によってクラッシュ/ブロックしうるため、消費側は最初のバッファから
+///   フォーマットを確定させる(録音ファイルの遅延オープン等)。
 public protocol AudioSource: Sendable {
     var kind: StreamKind { get }
-
-    /// `buffers()` が流すバッファのフォーマット。
-    var format: AVAudioFormat { get }
 
     /// cold・単一消費者の PCM バッファストリーム。
     ///

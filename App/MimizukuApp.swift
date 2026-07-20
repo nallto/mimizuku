@@ -14,13 +14,22 @@ struct MimizukuApp: App {
     private static let logWindowID = "live-log"
 
     var body: some Scene {
-        MenuBarExtra("Mimizuku", systemImage: "waveform") {
+        // アイコンの形状で動作状況を伝える(#35。色だけに依存しない ―― macos-ui-design)。
+        MenuBarExtra("Mimizuku", systemImage: menuSymbol) {
             MenuContent(controller: controller, logWindowID: Self.logWindowID)
         }
 
         // アセットのバックグラウンド導入は controller の init で起動時に開始する。
         Window("ライブ議事ログ", id: Self.logWindowID) {
             LiveLogView(controller: controller)
+        }
+    }
+
+    private var menuSymbol: String {
+        switch controller.menuState {
+        case .idle: "waveform"
+        case .recording: "record.circle"
+        case .error: "exclamationmark.triangle"
         }
     }
 }
@@ -56,11 +65,14 @@ private struct MenuContent: View {
     }
 
     private var statusText: String {
+        if let lastError = controller.lastError {
+            return "エラー: \(lastError)"
+        }
         switch controller.assetStatus {
-        case .notInstalled: "音声モデル未導入"
-        case .downloading: "音声モデルを準備中…"
-        case .ready: controller.isRunning ? "文字起こし中" : "準備完了"
-        case .failed: "モデル準備に失敗"
+        case .notInstalled: return "音声モデル未導入"
+        case .downloading: return "音声モデルを準備中…"
+        case .ready: return controller.isRunning ? "録音・文字起こし中" : "準備完了"
+        case .failed: return "モデル準備に失敗"
         }
     }
 }

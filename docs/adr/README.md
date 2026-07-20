@@ -17,6 +17,7 @@
 | [0002](./0002-license.md) | ライセンスは Apache-2.0 | **Proposed**(法務確認待ち・公開のブロッカー) |
 | [0003](./0003-module-architecture.md) | App ターゲット + 単一 SPM パッケージ(MimizukuCore)で開始 | Accepted |
 | [0004](./0004-xcode-project-generation.md) | Xcode プロジェクトは XcodeGen で生成(project.yml を正典) | Accepted |
+| [0005](./0005-product-scope-expansion.md) | プロダクトスコープ拡張、実装計画を「記録先行」6 フェーズへ再編 | Accepted |
 
 ## 統治判断
 

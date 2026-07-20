@@ -10,7 +10,7 @@
 
 Mimizuku は、録音・オンデバイス文字起こし・ノートを統合した macOS のメニューバー常駐アプリ(ADR-0005)。マイクとシステム音声(いずれか、または両方)を録音・保存し、Apple の Speech フレームワーク(`SpeechAnalyzer` / `SpeechTranscriber`)で完全オンデバイスのリアルタイム文字起こしを行う。対応言語は日本語と英語を最低限とする。UI はライブ議事ログに加え、3 ペインのメインウィンドウ(セッション一覧 / 波形付き再生 + 文字起こし / 要約・TODO・メモ)を持つ。翻訳・要約は Apple のオンデバイスフレームワーク(Translation / FoundationModels)で開始し、ローカル/クラウド LLM へ差し替え可能な抽象を設計する(クラウド利用の条件は ADR-0010 予定で決定するまで導入しない)。アプリ内辞書・横断検索・再文字起こし・動画/音声インポートをロードマップに含む(`docs/plan/IMPLEMENTATION_PLAN.md`)。OSS として公開し、App Store 外(Developer ID + notarization)で配布する。
 
-- スタック: Swift 6(strict concurrency)、SwiftUI `MenuBarExtra` App ターゲット +ローカル SPM パッケージ 1 つ(`MimizukuCore`)。捕捉は `AVAudioEngine`(マイク)と Core Audio process tap(システム音声)。保存はオンデバイスのみ(`~/Library/Application Support/` 配下)。
+- スタック: Swift 6(strict concurrency)、SwiftUI `MenuBarExtra` App ターゲット +ローカル SPM パッケージ 1 つ(`MimizukuCore`)。捕捉は `AVAudioEngine`(マイク)と Core Audio process tap(システム音声)。保存はオンデバイスのみ(XDG Base Directory 準拠 ―― データは `$XDG_DATA_HOME`、既定 `~/.local/share/mimizuku/` 配下。ADR-0006)。
 - 最小ターゲット: macOS 26.0、Apple Silicon 限定(ADR-0001)。
 
 ## 言語

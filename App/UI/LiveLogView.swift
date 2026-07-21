@@ -41,16 +41,12 @@ struct LiveLogView: View {
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 6) {
                     ForEach(controller.log.finalized) { segment in
-                        Text(segment.text)
-                            .textSelection(.enabled)
-                            .frame(maxWidth: .infinity, alignment: .leading)
+                        row(for: segment, dimmed: false)
                     }
                     // 現在の volatile 行(未確定)を薄く表示する。ストリーム毎に 1 行なので
                     // id はストリームで固定し、更新のたびの remove+insert を避ける。
                     ForEach(controller.log.volatileLines, id: \.stream) { segment in
-                        Text(segment.text)
-                            .foregroundStyle(.secondary)
-                            .frame(maxWidth: .infinity, alignment: .leading)
+                        row(for: segment, dimmed: true)
                     }
                     Color.clear.frame(height: 1).id(bottomAnchor)
                 }
@@ -59,6 +55,28 @@ struct LiveLogView: View {
             .onChange(of: controller.log.finalized.count) {
                 withAnimation { proxy.scrollTo(bottomAnchor, anchor: .bottom) }
             }
+        }
+    }
+
+    /// 1 セグメント = ストリームラベル + 本文。ラベルは会話の役割で表す
+    /// (マイク = 自分、システム音声 = 相手。相手側の話者分離はしない ――
+    /// domain-pitfalls #7 の範囲)。
+    private func row(for segment: TranscriptSegment, dimmed: Bool) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Text(Self.streamLabel(segment.stream))
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            Text(segment.text)
+                .textSelection(.enabled)
+                .foregroundStyle(dimmed ? .secondary : .primary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
+    private static func streamLabel(_ stream: StreamKind) -> String {
+        switch stream {
+        case .microphone: "自分"
+        case .systemAudio: "相手"
         }
     }
 }

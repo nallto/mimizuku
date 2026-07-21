@@ -32,6 +32,9 @@ final class AudioSessionController {
     private(set) var isRunning = false
     /// 直近のセッション/変換エラー(メニューバー表示用)。次の開始でクリアされる。
     private(set) var lastError: String?
+    /// 捕捉する入力ソース(マイク / システム音声の単独切替。同時捕捉は S4)。
+    /// 実行中の変更はメニュー側で無効化する。
+    var selectedSource: StreamKind = .microphone
 
     var menuState: MenuState {
         if lastError != nil { return .error }
@@ -43,7 +46,7 @@ final class AudioSessionController {
     private static let minimumSessionDuration: TimeInterval = 2.0
 
     private let locale = Locale(identifier: "ja-JP")
-    private let engine = SpeechEngine(stream: .microphone)
+    private let engine = SpeechEngine()
     private let layout = SessionLayout.defaultLayout()
     private let logger = Logger(subsystem: "dev.nallto.Mimizuku", category: "session")
     private var sessionTask: Task<Void, Never>?
@@ -133,10 +136,13 @@ final class AudioSessionController {
             fail("セッションディレクトリを作成できませんでした: \(error.localizedDescription)")
             return
         }
-        let source = MicrophoneSource()
+        let source: any AudioSource = switch selectedSource {
+        case .microphone: MicrophoneSource()
+        case .systemAudio: SystemAudioTapSource()
+        }
         let recorder = AudioFileWriter(
             url: sessionDirectory.appending(
-                component: SessionLayout.recordingFileName(for: .microphone)
+                component: SessionLayout.recordingFileName(for: source.kind)
             )
         )
 
@@ -162,7 +168,7 @@ final class AudioSessionController {
         _ = await recorder.finish()
         let duration = await recorder.duration
         if duration < Self.minimumSessionDuration {
-            logger.info("discarding short session (\(duration, format: .fixed(precision: 2))s)")
+            logger.notice("discarding short session (\(duration, format: .fixed(precision: 2))s)")
             try? FileManager.default.removeItem(at: sessionDirectory)
         } else {
             convertInBackground(caf: recorder.url)
@@ -176,7 +182,9 @@ final class AudioSessionController {
             do {
                 _ = try await Self.convertOffMain(caf: caf)
             } catch {
-                self?.lastError = "録音の圧縮に失敗しました(元データは保持): \(error.localizedDescription)"
+                let reason = error.localizedDescription
+                self?.logger.error("aac conversion failed: \(reason, privacy: .public)")
+                self?.lastError = "録音の圧縮に失敗しました(元データは保持): \(reason)"
             }
         }
     }
@@ -184,7 +192,7 @@ final class AudioSessionController {
     private func recoverPendingRecordings() async {
         let pending = layout.pendingRecordings()
         guard !pending.isEmpty else { return }
-        logger.info("recovering \(pending.count) unconverted recording(s)")
+        logger.notice("recovering \(pending.count) unconverted recording(s)")
         for caf in pending {
             do {
                 _ = try await Self.convertOffMain(caf: caf)

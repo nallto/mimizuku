@@ -72,7 +72,7 @@ final class MicrophoneSource: AudioSource {
                 let hz = Int(inputFormat.sampleRate)
                 let ch = Int(inputFormat.channelCount)
                 logger
-                    .info(
+                    .notice(
                         "mic capture started: \(hz, privacy: .public)Hz \(ch, privacy: .public)ch"
                     )
             } catch {
@@ -85,7 +85,7 @@ final class MicrophoneSource: AudioSource {
                 // ストリーム終了 / キャンセルで tap とエンジンを解放する(状態リーク防止)。
                 engine.stop()
                 engine.inputNode.removeTap(onBus: 0)
-                logger.info("microphone capture stopped")
+                logger.notice("microphone capture stopped")
             }
         }
     }

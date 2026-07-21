@@ -7,8 +7,9 @@ import Speech
 /// `SpeechAnalyzer` + `SpeechTranscriber`(Speech framework、macOS 26+)を
 /// `TranscriptionEngine` 契約の裏に隠す本番実装。完全オンデバイス。
 ///
-/// - 1 ソース = 1 セッション = 1 エンジン(`init(stream:)` で紐づけ)。App はマイクと
-///   システム音声で 2 セッションを並行実行しうる(Slice 1 ではマイクのみ)。
+/// - 1 ソース = 1 セッション = 1 エンジン。セグメントのストリームラベルは
+///   `source.kind` に従う(エンジン自体はストリーム非依存)。App はマイクと
+///   システム音声で 2 セッションを並行実行しうる(同時捕捉は S4)。
 /// - `.volatileResults` を有効化し、暫定結果(`isFinal == false`)に続いて確定版を流す。
 ///   消費側(`TranscriptLog`)が volatile→final の収束を担う。
 /// - アセットはロケール別に数百 MB。`prepare(locale:)` で導入を保証する
@@ -17,7 +18,6 @@ import Speech
 ///
 /// actor にして、非 Sendable な Speech 型(`SpeechTranscriber` 等)の可変状態を隔離する。
 actor SpeechEngine: TranscriptionEngine {
-    private let stream: StreamKind
     private let logger: Logger
 
     /// `prepare(locale:)` で解決・保持するロケール。transcriber はセッションごとに新規生成
@@ -26,9 +26,8 @@ actor SpeechEngine: TranscriptionEngine {
     /// instance に紐づかない。
     private var locale: Locale?
 
-    init(stream: StreamKind) {
-        self.stream = stream
-        logger = Logger(subsystem: "dev.nallto.Mimizuku", category: "speech.\(stream.rawValue)")
+    init() {
+        logger = Logger(subsystem: "dev.nallto.Mimizuku", category: "speech")
     }
 
     // MARK: - アセット
@@ -49,9 +48,9 @@ actor SpeechEngine: TranscriptionEngine {
         // 何も導入不要なら nil。要導入なら数百 MB のダウンロードを待つ。
         let request = try await AssetInventory.assetInstallationRequest(supporting: [transcriber])
         if let request {
-            logger.info("downloading speech model asset…")
+            logger.notice("downloading speech model asset…")
             try await request.downloadAndInstall()
-            logger.info("speech model asset installed")
+            logger.notice("speech model asset installed")
         }
     }
 
@@ -94,7 +93,8 @@ actor SpeechEngine: TranscriptionEngine {
         // 結果(volatile と final)を並行して消費し TranscriptSegment へマップする。
         // results は analyzer が終了(finalize)するまで完了しないため、給餌とは別タスクで待つ
         // (同一フローで待つとデッドロックする)。SpeechTranscriber は Sendable(SpeechModule)。
-        let stream = stream
+        // セグメントのストリームラベルはソース由来(エンジンはストリーム非依存)。
+        let stream = source.kind
         let resultsTask = Task {
             for try await result in transcriber.results {
                 continuation.yield(TranscriptSegment(
@@ -111,8 +111,19 @@ actor SpeechEngine: TranscriptionEngine {
 
         do {
             // 捕捉バッファを解析入力へ供給する。ソースが尽きる / キャンセルされるまで回る。
+            //
+            // 完全無音(厳密ゼロ)のバッファは解析へ送らない ―― SpeechTranscriber は
+            // 無音入力から短い幻聴セグメント(「あ」等)を生成することがある
+            // (システム音声 tap の無音は厳密ゼロ。マイクはノイズフロアで非ゼロのため
+            // 影響しない)。スキップで解析タイムラインが録音とずれないよう、全バッファに
+            // 開始時刻を明示して供給する(TranscriptSegment.start/end の原点維持)。
+            var framesElapsed: Int64 = 0
             for try await buffer in source.buffers() {
-                inputContinuation.yield(AnalyzerInput(buffer: buffer))
+                let sampleRate = CMTimeScale(buffer.format.sampleRate)
+                let startTime = CMTime(value: framesElapsed, timescale: max(sampleRate, 1))
+                framesElapsed += Int64(buffer.frameLength)
+                guard !Self.isAllZero(buffer) else { continue }
+                inputContinuation.yield(AnalyzerInput(buffer: buffer, bufferStartTime: startTime))
             }
             inputContinuation.finish()
             // 残余を確定させ results を閉じる → resultsTask が完了する。
@@ -127,6 +138,20 @@ actor SpeechEngine: TranscriptionEngine {
     }
 
     // MARK: - Helpers
+
+    /// 全サンプルが厳密にゼロか。PCM(int16 / float32)ではサンプル値 0 = 全バイト 0 なので
+    /// フォーマット非依存にバイト走査で判定する(音があれば先頭付近で即 false)。
+    private static func isAllZero(_ buffer: AVAudioPCMBuffer) -> Bool {
+        let list = UnsafeMutableAudioBufferListPointer(buffer.mutableAudioBufferList)
+        for channel in list {
+            guard let data = channel.mData else { continue }
+            let bytes = data.assumingMemoryBound(to: UInt8.self)
+            for index in 0 ..< Int(channel.mDataByteSize) where bytes[index] != 0 {
+                return false
+            }
+        }
+        return true
+    }
 
     private static func makeTranscriber(for locale: Locale) -> SpeechTranscriber {
         SpeechTranscriber(

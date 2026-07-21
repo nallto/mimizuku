@@ -21,6 +21,8 @@
 
 10. **捕捉開始前の `inputNode.outputFormat(forBus:)` 事前照会はクラッシュしうる。** 使い捨ての `AVAudioEngine()` を作って init 時(MainActor 上)にフォーマットを先取りしたところ、`AVAudioIONodeImpl::GetOutputFormat` 内でクラッシュした(S2 実装時に実機で観測)。ハードウェア照会は `buffers()` 内で実際に使うエンジンに対してのみ行い、下流(録音ファイル・変換器)は**最初のバッファの `format` から遅延確定**させる(`AudioFileWriter` の遅延オープン、`AudioRouter` の遅延変換器生成)。HAL への同期照会は main thread では行わない。
 
+12. **voice processing(VPIO の AEC)はシステム音声 tap と両立しない。** スピーカー再生音がマイクへ回り込む(「自分」として二重に文字起こしされる)対策に`inputNode.setVoiceProcessingEnabled(true)` を試したところ、次の 2 つが実機で判明した(S4)。(1) VPIO は**システム全体で他アプリ音声をダッキング**し、`voiceProcessingOtherAudioDuckingConfiguration` を `.min` にしても process tap の捕捉信号が約 20dB 減衰する(耳には「少し小さい」程度でも文字起こしには実質無音 ―― tap はダッキング後の信号を拾う)。FaceTime 等が AEC と相手音声を両立できるのは相手音声を自分の VPIO 出力から再生しているためで、他アプリの音を tap で拾う本アプリでは同じ手が使えない。(2) VPIO 有効化で入力フォーマットが多チャンネル化することがある(実測: 5ch Int16 discrete・全チャンネルがビット同一の複製。5ch discrete の CAF は AAC 変換できない)。結論: **AEC は採用せず、スピーカー運用時のエコーはヘッドホン利用で回避する**(将来の対策候補は #59)。
+
 ## CI
 
 8. **ホスト型ランナーは TCC 権限を付与できない。** マイクやシステム音声 tap に触れるものはすべてローカル限定。CI は `macos-26` ランナーで純ロジックのパッケージテストを実行する。音声/権限挙動を「CI で検証した」という主張は定義上偽 ―― 代わりにローカル実行ログを要求する。

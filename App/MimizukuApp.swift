@@ -13,16 +13,26 @@ struct MimizukuApp: App {
     @State private var controller = AudioSessionController()
 
     private static let logWindowID = "live-log"
+    private static let diagnosticsWindowID = "diagnostics"
 
     var body: some Scene {
         // アイコンの形状で動作状況を伝える(#35。色だけに依存しない ―― macos-ui-design)。
         MenuBarExtra("Mimizuku", systemImage: menuSymbol) {
-            MenuContent(controller: controller, logWindowID: Self.logWindowID)
+            MenuContent(
+                controller: controller,
+                logWindowID: Self.logWindowID,
+                diagnosticsWindowID: Self.diagnosticsWindowID
+            )
         }
 
         // アセットのバックグラウンド導入は controller の init で起動時に開始する。
         Window("ライブ議事ログ", id: Self.logWindowID) {
             LiveLogView(controller: controller)
+        }
+
+        // 権限診断(#37): マイク / システム音声 / 音声モデルの状態と修正アクション。
+        Window("権限診断", id: Self.diagnosticsWindowID) {
+            DiagnosticsView(controller: controller)
         }
     }
 
@@ -39,6 +49,7 @@ struct MimizukuApp: App {
 private struct MenuContent: View {
     @Bindable var controller: AudioSessionController
     let logWindowID: String
+    let diagnosticsWindowID: String
 
     @Environment(\.openWindow) private var openWindow
 
@@ -52,11 +63,12 @@ private struct MenuContent: View {
 
         Divider()
 
-        // 入力ソースの単独切替(同時捕捉は S4)。実行中の変更はセッションと録音の
+        // 入力ソースの選択(単独 / 両方)。実行中の変更はセッションと録音の
         // 不整合を生むため無効化する。
-        Picker("入力ソース", selection: $controller.selectedSource) {
-            Text("マイク").tag(StreamKind.microphone)
-            Text("システム音声").tag(StreamKind.systemAudio)
+        Picker("入力ソース", selection: $controller.selection) {
+            Text("マイク").tag(CaptureSelection.microphone)
+            Text("システム音声").tag(CaptureSelection.systemAudio)
+            Text("両方").tag(CaptureSelection.both)
         }
         .pickerStyle(.inline)
         .disabled(controller.isRunning)
@@ -67,6 +79,11 @@ private struct MenuContent: View {
             openWindow(id: logWindowID)
         }
         .keyboardShortcut("l")
+
+        Button("権限診断を開く") {
+            openWindow(id: diagnosticsWindowID)
+        }
+        .keyboardShortcut("d")
 
         Divider()
 

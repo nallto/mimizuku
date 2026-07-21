@@ -92,10 +92,14 @@ enum AudioRouter {
     /// 停止フロー: 文字起こし側ストリームの終了(セッション Task のキャンセル)で
     /// ルーター Task が畳まれ、ソースの tap / エンジンが解放される。`recorder` の
     /// `finish()` は呼び出し側(セッション所有者)の責務。
+    ///
+    /// `onFirstBuffer` は最初のバッファ処理前に 1 度だけ呼ばれる(複数ストリーム間の
+    /// 捕捉開始オフセット計測用。S4 の時刻同期の受け入れ確認)。
     static func route(
         source: any AudioSource,
         transcriptionFormat: AVAudioFormat,
-        recorder: AudioFileWriter
+        recorder: AudioFileWriter,
+        onFirstBuffer: (@Sendable () -> Void)? = nil
     ) -> RoutedAudioSource {
         let (stream, continuation) = AsyncThrowingStream.makeStream(of: AVAudioPCMBuffer.self)
 
@@ -113,6 +117,9 @@ enum AudioRouter {
                             makeConverter(from: buffer.format, to: transcriptionFormat),
                             makeConverter(from: buffer.format, to: buffer.format)
                         )
+                    }
+                    if converters == nil {
+                        onFirstBuffer?()
                     }
                     converters = (transcriptionConverter, recordingCopier)
 

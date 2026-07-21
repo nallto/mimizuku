@@ -51,6 +51,44 @@ targets:
         PRODUCT_NAME: Mimizuku
         MARKETING_VERSION: "0.0.1"
         CURRENT_PROJECT_VERSION: "1"
+        # WebRTC audio_processing(AEC3)ベンダリング(ADR-0013)。
+        # 事前に scripts/build-webrtc-apm.sh の実行が必要(just app-build が実行する)。
+        # フラグは Vendor/webrtc-apm/lib/pkgconfig/*.pc 由来。
+        SWIFT_OBJC_BRIDGING_HEADER: App/Mimizuku-Bridging-Header.h
+        CLANG_CXX_LANGUAGE_STANDARD: c++17
+        HEADER_SEARCH_PATHS:
+          - $(SRCROOT)/Vendor/webrtc-apm/include/webrtc-audio-processing-2
+          - $(SRCROOT)/Vendor/webrtc-apm/include
+        LIBRARY_SEARCH_PATHS:
+          - $(SRCROOT)/Vendor/webrtc-apm/lib
+        OTHER_LDFLAGS: ["-lwebrtc-apm-bundle"]
+        GCC_PREPROCESSOR_DEFINITIONS:
+          - WEBRTC_POSIX=1
+          - WEBRTC_LIBRARY_IMPL=1
+
+  # AEC のオフライン検証 CLI(開発用、ADR-0013 / #61)。実録音ペア(mic + system)を
+  # APM に通し、処理後 WAV と抑圧量を出力する。配布物ではない。
+  aecprobe:
+    type: tool
+    platform: macOS
+    deploymentTarget: "26.0"
+    sources:
+      - path: Tools/AecProbe
+      - path: App/Audio
+    settings:
+      base:
+        PRODUCT_NAME: aecprobe
+        SWIFT_OBJC_BRIDGING_HEADER: App/Mimizuku-Bridging-Header.h
+        CLANG_CXX_LANGUAGE_STANDARD: c++17
+        HEADER_SEARCH_PATHS:
+          - $(SRCROOT)/Vendor/webrtc-apm/include/webrtc-audio-processing-2
+          - $(SRCROOT)/Vendor/webrtc-apm/include
+        LIBRARY_SEARCH_PATHS:
+          - $(SRCROOT)/Vendor/webrtc-apm/lib
+        OTHER_LDFLAGS: ["-lwebrtc-apm-bundle"]
+        GCC_PREPROCESSOR_DEFINITIONS:
+          - WEBRTC_POSIX=1
+          - WEBRTC_LIBRARY_IMPL=1
 
 # xcodebuild -scheme Mimizuku 用の共有スキーム(CI の App ビルドジョブが使用)。
 schemes:
@@ -58,5 +96,11 @@ schemes:
     build:
       targets:
         Mimizuku: all
+    run:
+      config: Debug
+  aecprobe:
+    build:
+      targets:
+        aecprobe: all
     run:
       config: Debug

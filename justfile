@@ -46,8 +46,13 @@ fmt-file file:
 generate:
     @xcodegen generate
 
+# WebRTC audio_processing(AEC3)のベンダリングビルド(ADR-0013)。
+# ピン留めコミットと一致していれば即終了する。要 meson / ninja(mise.toml)。
+vendor-apm:
+    @bash scripts/build-webrtc-apm.sh
+
 # App の署名付きローカルビルド(完全な Xcode 必須)。TCC プロンプトは署名済み
 # ビルドでのみ出る(domain-pitfalls #4)ため、ローカルは通常署名でビルドする。
 # Xcode 依存のため純ロジック検証の `just check` には含めない(CI は別ジョブ)。
-app-build: generate
+app-build: vendor-apm generate
     @xcodebuild -project Mimizuku.xcodeproj -scheme Mimizuku -configuration Debug build

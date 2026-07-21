@@ -35,8 +35,12 @@ public protocol AudioSource: Sendable {
     /// 実装は以下を守る:
     /// - 回復不能な捕捉失敗時は(無言で止めず)throw する。
     /// - macOS 26 既知の process-tap 障害モード(IOProc は発火し続けるのに
-    ///   サンプルが厳密に 0.0f になる)を検知し、error として表面化させ、
-    ///   ルーターが tap + aggregate device の完全再構築を起動できるようにする
+    ///   サンプルが厳密に 0.0f になる)は、**ソース内部で** tap + aggregate device の
+    ///   両方を破棄・再作成して回復し、ストリームは切らない(録音・セッションを
+    ///   継続させる)。回復不能(API 失敗の連続)な場合のみ throw する
     ///   (docs/domain-pitfalls.md #3)。
+    /// - ストリーム生涯でフォーマットを固定する。内部再構築でデバイス由来の
+    ///   フォーマットが変わったら、初回の基準フォーマットへ変換して流す
+    ///   (下流の録音ファイル・変換器を不変に保つ)。
     func buffers() -> AsyncThrowingStream<AVAudioPCMBuffer, Error>
 }

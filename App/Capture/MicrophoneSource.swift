@@ -36,6 +36,10 @@ enum CaptureError: Error, LocalizedError {
 ///   切り離してから流す(docs/domain-pitfalls.md #9)。
 /// - **cold・単一消費者。** `buffers()` を呼ぶたびに独立したエンジンを起動し、ストリーム
 ///   終了 / キャンセルで tap とエンジンを確実に解放する(start/stop 反復での状態リーク防止)。
+/// - **voice processing(AEC)は使わない。** スピーカー再生中はマイクが再生音を拾い
+///   「自分」として二重に文字起こしされるが、VPIO の AEC はシステム全体の他アプリ音声
+///   ダッキングを伴い、システム音声 tap の捕捉信号まで減衰させるため採用できない
+///   (docs/domain-pitfalls.md #12)。スピーカー運用時のエコーはヘッドホン利用で回避する。
 final class MicrophoneSource: AudioSource {
     let kind: StreamKind = .microphone
 

@@ -44,6 +44,9 @@ nav:
       - ADR-0001 最小OSターゲット: adr/0001-minimum-os-target.md
       - ADR-0002 ライセンス: adr/0002-license.md
       - ADR-0003 モジュール構成: adr/0003-module-architecture.md
+      - ADR-0004 Xcodeプロジェクト生成: adr/0004-xcode-project-generation.md
+      - ADR-0005 プロダクトスコープ拡張: adr/0005-product-scope-expansion.md
+      - ADR-0006 録音形式と保存レイアウト: adr/0006-recording-format-and-layout.md
       - G-0001 マージ戦略: adr/governance/G-0001-merge-strategy.md
       - G-0002 リリース戦略: adr/governance/G-0002-release-strategy.md
       - G-0003 未完成コード統合: adr/governance/G-0003-incomplete-code-integration.md

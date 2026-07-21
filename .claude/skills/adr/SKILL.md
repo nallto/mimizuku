@@ -12,5 +12,5 @@
    - Consequences: 得るもの・失うもの(トレードオフ)・今後の影響。
 4. ステータスは `Proposed` で起票し、承認を得てから `Accepted` にする。
 5. 既存の ADR を覆す場合は書き換えず、新しい ADR を作成して旧 ADR のステータスに`Superseded by ADR-NNNN` を記す(判断の履歴を残すため)。
-6. 対応する種別の `docs/adr/README.md` の一覧表に行を追加する。
+6. 対応する種別の `docs/adr/README.md` の一覧表に行を追加する。あわせて `mkdocs.yml` の `nav:` にも項目を追加する(docs サイトの左ナビは nav が手書きのため、忘れるとサイトに表示されない)。
 7. 原則、実装 PR より先に(または同じ PR で)ADR を入れる。

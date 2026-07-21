@@ -1,11 +1,12 @@
 import AppKit
+import MimizukuCore
 import SwiftUI
 
 /// メニューバー常駐アプリのエントリポイント。
 ///
-/// メニューバーから開始/停止を操作し、ライブ議事ログは専用ウィンドウで表示する。
-/// 捕捉/文字起こしのロジックは `MimizukuCore` の契約越しに App 層の具象
-/// (`MicrophoneSource` / `SpeechEngine`)へ配線する(ADR-0003)。
+/// メニューバーから開始/停止・入力ソース切替を操作し、ライブ議事ログは専用ウィンドウで
+/// 表示する。捕捉/文字起こしのロジックは `MimizukuCore` の契約越しに App 層の具象
+/// (`MicrophoneSource` / `SystemAudioTapSource` / `SpeechEngine`)へ配線する(ADR-0003)。
 @main
 struct MimizukuApp: App {
     /// アプリ全体で 1 つのセッション状態を共有する。
@@ -34,9 +35,9 @@ struct MimizukuApp: App {
     }
 }
 
-/// メニューバーのドロップダウン内容。開始/停止・状態・ウィンドウ表示・終了。
+/// メニューバーのドロップダウン内容。開始/停止・入力ソース・状態・ウィンドウ表示・終了。
 private struct MenuContent: View {
-    let controller: AudioSessionController
+    @Bindable var controller: AudioSessionController
     let logWindowID: String
 
     @Environment(\.openWindow) private var openWindow
@@ -48,6 +49,17 @@ private struct MenuContent: View {
         .keyboardShortcut("r")
 
         Text(statusText)
+
+        Divider()
+
+        // 入力ソースの単独切替(同時捕捉は S4)。実行中の変更はセッションと録音の
+        // 不整合を生むため無効化する。
+        Picker("入力ソース", selection: $controller.selectedSource) {
+            Text("マイク").tag(StreamKind.microphone)
+            Text("システム音声").tag(StreamKind.systemAudio)
+        }
+        .pickerStyle(.inline)
+        .disabled(controller.isRunning)
 
         Divider()
 

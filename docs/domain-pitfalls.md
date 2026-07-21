@@ -6,13 +6,15 @@
 
 1. **排他フラグの反転。** `CATapDescription(stereoGlobalTapButExcludeProcesses:)` は排他性を自動設定する。後から `isExclusive` を変更すると意味が反転し(「列挙 PID 以外すべて」→「列挙 PID のみ」)、無音になる。このイニシャライザの後で `isExclusive` に触らない。
 2. **AVAudioEngine を tap 付き aggregate device に向け直せない。** デバイス設定は `noErr` を返すが、エンジンは既定入力を読み続ける。aggregate は `AudioDeviceCreateIOProcIDWithBlock`で直接消費する ―― AVAudioEngine ではない。
-3. **長時間セッションのゼロサンプル劣化。** IOProc は正常に発火し続けるのに、サンプルがすべて厳密に `0.0f` になることがある。回復には process tap と aggregate device の**両方**を破棄・再作成する必要がある。IOProc の再起動だけでは直らない。`AudioSource` 実装はこれを検知して error として表面化させ、ルーターが完全再構築を起動できるようにする(S3 のゼロサンプル watchdog)。
+3. **長時間セッションのゼロサンプル劣化。** IOProc は正常に発火し続けるのに、サンプルがすべて厳密に `0.0f` になることがある。回復には process tap と aggregate device の**両方**を破棄・再作成する必要がある。IOProc の再起動だけでは直らない。`AudioSource` 実装はこれを検知して**ソース内部で**両方を破棄・再作成し、ストリームは切らずに継続する(S3 のゼロサンプル watchdog)。正当な無音と劣化はソースから区別できないため、発火間隔はバックオフさせ、無音だけではセッションを殺さない(`ZeroSampleWatchdog`)。
 4. **TCC プロンプトは署名済みバイナリでのみ出る。** `NSAudioCaptureUsageDescription` のプロンプトは正しく署名されたビルドでのみ表示される。未署名 / ad-hoc デバッグビルドでは無言で何も録れないことがある。「音が録れない」の調査前に署名を確認する。
 
 ## SpeechAnalyzer / SpeechTranscriber(macOS 26+)
 
 5. **モデルアセットはロケール単位で大きい。** 数百 MB。初回利用前に `AssetInventory` で導入を保証する必要がある。オンデマンドではなくアプリ起動時にバックグラウンドでダウンロードし、初回利用がダウンロードでブロックしないようにする。
 6. **volatile と final。** `.volatileResults` は暫定セグメントを生み、後で確定版に置き換わる。確定セグメントのみ永続化し、volatile は薄く(dimmed)描画する。
+11. **完全無音の入力から幻聴セグメントが出る。** 厳密ゼロのバッファ(システム音声 tap の無音)を供給し続けると、SpeechTranscriber が短い幻聴セグメント(「あ」1 文字等)を確定として生成することがある(S3 実装時に実機で観測、再現性あり)。厳密ゼロのバッファは解析へ供給しない。ただし単純にスキップすると解析タイムラインが圧縮されて `audioTimeRange` が録音とずれるため、**全バッファに `AnalyzerInput(buffer:bufferStartTime:)` で開始時刻を明示**して供給する。マイクはノイズフロアで厳密ゼロにならないため影響しない。
+
 7. **話者 diarization は無い(ただしマイク / システムの区別は保持される)。** 2 階層を分けて考える。(1) ストリーム同一性 ―― 音声がマイク由来かシステム音声 tap 由来かは常に判別可能で、`TranscriptSegment.stream`(`.microphone` / `.systemAudio`)に必ず載る。「自分 vs 相手」の振り分けや、並列表示・チャット形式表示はこの 1 フィールドで実現できる(将来チャット形式にしても、どちらのストリーム由来かは失われない)。(2) diarization ―― 1 つのストリーム内で複数話者を区別する機能は無い(例: システム音声に相手 A・B・C が混在していても分離できない)。UI や docs では「自分 / 相手」までは表明してよいが、相手側の話者分離は主張しない。
 
 ## AVAudioEngine(マイク捕捉)

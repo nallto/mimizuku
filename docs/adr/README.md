@@ -19,6 +19,7 @@
 | [0004](./0004-xcode-project-generation.md) | Xcode プロジェクトは XcodeGen で生成(project.yml を正典) | Accepted |
 | [0005](./0005-product-scope-expansion.md) | プロダクトスコープ拡張、実装計画を「記録先行」6 フェーズへ再編 | Accepted |
 | [0006](./0006-recording-format-and-layout.md) | 録音は CAF(PCM)+ 停止時 AAC 変換、ストリーム毎 2 ファイル | Accepted |
+| [0013](./0013-echo-cancellation-webrtc-aec3.md) | エコーキャンセルは WebRTC AEC3、処理後音声を録音・文字起こしに使う | Accepted |
 
 ## 統治判断
 

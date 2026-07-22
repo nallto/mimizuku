@@ -49,6 +49,12 @@ final class SystemAudioTapSource: AudioSource {
     private let logger = Logger(subsystem: "dev.nallto.Mimizuku", category: "capture.tap")
 
     func buffers() -> AsyncThrowingStream<AVAudioPCMBuffer, Error> {
+        TimestampedStreamSupport.droppingTimestamps(timestampedBuffers())
+    }
+
+    /// AEC 経路用: 捕捉時刻付きで流す(消費者は AEC ポンプ ―― AEC-3。ADR-0013 の 4)。
+    /// cold・単一消費者などの契約は `buffers()` と同じ。
+    func timestampedBuffers() -> AsyncThrowingStream<TimestampedAudioBuffer, Error> {
         let logger = logger
         return AsyncThrowingStream { continuation in
             // TapSession はキュー直列化を根拠に @unchecked Sendable(宣言部の正当化
@@ -70,7 +76,7 @@ final class SystemAudioTapSource: AudioSource {
 /// データ競合は構造的に排除されている。アクター化しない理由: IOProc コールバックと
 /// CoreAudio API(同期・ブロッキング)がディスパッチキュー前提のため。
 private final class TapSession: @unchecked Sendable {
-    typealias Continuation = AsyncThrowingStream<AVAudioPCMBuffer, Error>.Continuation
+    typealias Continuation = AsyncThrowingStream<TimestampedAudioBuffer, Error>.Continuation
 
     private let continuation: Continuation
     private let logger: Logger
@@ -146,8 +152,8 @@ private final class TapSession: @unchecked Sendable {
 
         // 4. IOProc で直接消費(AVAudioEngine は使わない、domain-pitfalls #2)。
         var newProcID: AudioDeviceIOProcID?
-        let ioBlock: AudioDeviceIOBlock = { [weak self] _, inInputData, _, _, _ in
-            self?.handleIO(inInputData)
+        let ioBlock: AudioDeviceIOBlock = { [weak self] _, inInputData, inInputTime, _, _ in
+            self?.handleIO(inInputData, at: inInputTime)
         }
         try check(
             AudioDeviceCreateIOProcIDWithBlock(&newProcID, aggregateID, ioQueue, ioBlock),
@@ -293,7 +299,10 @@ private final class TapSession: @unchecked Sendable {
 
     // MARK: - IO(ioQueue)
 
-    private func handleIO(_ inputData: UnsafePointer<AudioBufferList>) {
+    private func handleIO(
+        _ inputData: UnsafePointer<AudioBufferList>,
+        at inputTime: UnsafePointer<AudioTimeStamp>
+    ) {
         guard let tapFormat = ioTapFormat, let converter = ioConverter else { return }
 
         // ゼロサンプル watchdog(docs/domain-pitfalls.md #3)。float32 前提、
@@ -317,7 +326,10 @@ private final class TapSession: @unchecked Sendable {
         else {
             return
         }
-        continuation.yield(copy)
+        continuation.yield(TimestampedAudioBuffer(
+            buffer: copy,
+            hostTime: TimestampedStreamSupport.seconds(from: inputTime.pointee)
+        ))
     }
 
     // MARK: - CoreAudio ヘルパー(controlQueue)

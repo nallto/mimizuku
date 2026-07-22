@@ -48,6 +48,14 @@ jobs:
         run: |
           sw_vers
           xcodebuild -version
+      # WebRTC audio_processing(AEC3)のベンダリング(ADR-0013)。ビルドは数分かかる
+      # ため、スクリプト(ピン留めコミットを含む)のハッシュをキーにキャッシュする。
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: Vendor/webrtc-apm
+          key: webrtc-apm-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('scripts/build-webrtc-apm.sh') }}
+      - name: Vendor WebRTC APM
+        run: just vendor-apm
       # project.yml(正典)から .xcodeproj / Info.plist を生成する(ローカルと同一手順)。
       - name: Generate Xcode project
         run: just generate
@@ -59,6 +67,14 @@ jobs:
           xcodebuild build \
             -project Mimizuku.xcodeproj \
             -scheme Mimizuku \
+            -configuration Debug \
+            CODE_SIGNING_ALLOWED=NO
+      # AEC オフライン検証 CLI(#61)のコンパイル検証。実行(実音声)はローカル限定。
+      - name: Build aecprobe (unsigned)
+        run: |
+          xcodebuild build \
+            -project Mimizuku.xcodeproj \
+            -scheme aecprobe \
             -configuration Debug \
             CODE_SIGNING_ALLOWED=NO
 

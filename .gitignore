@@ -41,6 +41,9 @@ CLAUDE.local.md
 /local/*
 !/local/README.md
 
+# ベンダリング成果物(scripts/build-webrtc-apm.sh が生成する。ADR-0013)
+/Vendor/
+
 # MkDocs build output
 site/
 _site/

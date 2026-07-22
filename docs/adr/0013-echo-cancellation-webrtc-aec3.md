@@ -35,14 +35,14 @@
 3. **処理後音声を文字起こしと録音の両方に使う**(mic.caf / mic.m4a は AEC + NS 処理後の音声になる)。**ADR-0006 の決定 1「native 品質で録音」をマイクストリームについて修正**する。システム音声ストリームの録音は従来どおり native。
 4. **同期層を自前で持つ**(AEC 性能は同期精度で決まる)。ホストタイムスタンプ整列・双方リングバッファ・10ms フレーマ・ドリフト計測を `MimizukuCore` の純ロジックとして実装し CI でテストする。精密なレイテンシ推定(音波伝搬等)は行わない ―― AEC3 の遅延自動推定が吸収する範囲の粗整列で足りる。
 5. **Swift から C++ を直接触らない**。Obj-C++(.mm)の `AudioProcessingBridge` で境界を切り、`AudioProcessor` プロトコルで抽象化する(将来の RNNoise / DeepFilterNet / Apple 純正 API への差し替え点)。APM とブリッジは App ターゲット、同期純ロジックは Core(Packages の UI/TCC 非依存規約を維持)。
-6. **ベンダリング**: freedesktop webrtc-audio-processing を**ピン留めコミット**からビルドする `scripts/build-webrtc-apm.sh`(meson + ninja + abseil → arm64 静的 xcframework)。**ビルド成果物はコミットしない**(gitignore)。LICENSE / PATENTS を同梱し NOTICE に表示(AEC-1 の PR で追加)。
+6. **ベンダリング**: freedesktop webrtc-audio-processing を**ピン留めコミット**からビルドする `scripts/build-webrtc-apm.sh`(meson + ninja + abseil → arm64 静的ライブラリ。全 .a を `libwebrtc-apm-bundle.a` 1 本へ束ねる)。**ビルド成果物はコミットしない**(gitignore)。静的リンクされる全成分(WebRTC・abseil・rnnoise・pffft・Ooura fft)のライセンス原文を `third_party/` に同梱し、`third_party/README.md` を NOTICE の集約とする(AEC-1 の PR で追加)。
 7. **段階ゲート**: ライブ統合(#63)の前に、実録音ペアによるオフライン実測(#61)で抑圧効果(目安 20dB 以上 + 試聴)を確認する。不合格なら統合へ進まず、DTLN-aec(代替案 d)を再評価する。
 
 ## Consequences(結果)
 
 - 得るもの: スピーカー運用での二重混入の解消(会議用途の必須要件)。VPIO と違いダッキング副作用が無く、システム音声の聴取・捕捉・文字起こしと両立する。完全オンデバイス(ハード制約 2 を維持)。
 - 失うもの・代償:
-  - **C++ 依存とビルド複雑性**(meson / abseil / xcframework)。ピン留めスクリプトと CI キャッシュで管理する。逃げ道として xcframework 配布フォークの一時利用が可能。
+  - **C++ 依存とビルド複雑性**(meson / abseil / 静的ライブラリ)。ピン留めスクリプトと CI キャッシュで管理する。逃げ道として xcframework 配布フォークの一時利用が可能。
   - **マイク録音が処理済み音声になる**(NS 込みで帯域感が変わる)。原音が必要になった場合は AudioRouter の分岐で生録音の並行保存をオプション化できる(その際は ADR を更新)。
   - バージョン追従の保守負荷(freedesktop 版のリリースに追随)。
 - リスクと監視条件:

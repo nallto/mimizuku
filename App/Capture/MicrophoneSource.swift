@@ -46,6 +46,12 @@ final class MicrophoneSource: AudioSource {
     private let logger = Logger(subsystem: "dev.nallto.Mimizuku", category: "capture.mic")
 
     func buffers() -> AsyncThrowingStream<AVAudioPCMBuffer, Error> {
+        TimestampedStreamSupport.droppingTimestamps(timestampedBuffers())
+    }
+
+    /// AEC 経路用: 捕捉時刻付きで流す(消費者は AEC ポンプ ―― AEC-3。ADR-0013 の 4)。
+    /// cold・単一消費者などの契約は `buffers()` と同じ。
+    func timestampedBuffers() -> AsyncThrowingStream<TimestampedAudioBuffer, Error> {
         let logger = logger
         return AsyncThrowingStream { continuation in
             // AVAudioEngine とそのノードは Sendable ではない。本エンジンはこの 1 ストリーム
@@ -65,9 +71,12 @@ final class MicrophoneSource: AudioSource {
                 return
             }
 
-            input.installTap(onBus: 0, bufferSize: 4096, format: inputFormat) { buffer, _ in
+            input.installTap(onBus: 0, bufferSize: 4096, format: inputFormat) { buffer, when in
                 guard let copy = copier.convertedCopy(of: buffer) else { return }
-                continuation.yield(copy)
+                continuation.yield(TimestampedAudioBuffer(
+                    buffer: copy,
+                    hostTime: TimestampedStreamSupport.seconds(from: when)
+                ))
             }
 
             do {

@@ -21,7 +21,12 @@
 
 10. **捕捉開始前の `inputNode.outputFormat(forBus:)` 事前照会はクラッシュしうる。** 使い捨ての `AVAudioEngine()` を作って init 時(MainActor 上)にフォーマットを先取りしたところ、`AVAudioIONodeImpl::GetOutputFormat` 内でクラッシュした(S2 実装時に実機で観測)。ハードウェア照会は `buffers()` 内で実際に使うエンジンに対してのみ行い、下流(録音ファイル・変換器)は**最初のバッファの `format` から遅延確定**させる(`AudioFileWriter` の遅延オープン、`AudioRouter` の遅延変換器生成)。HAL への同期照会は main thread では行わない。
 
-12. **voice processing(VPIO の AEC)はシステム音声 tap と両立しない。** スピーカー再生音がマイクへ回り込む(「自分」として二重に文字起こしされる)対策に`inputNode.setVoiceProcessingEnabled(true)` を試したところ、次の 2 つが実機で判明した(S4)。(1) VPIO は**システム全体で他アプリ音声をダッキング**し、`voiceProcessingOtherAudioDuckingConfiguration` を `.min` にしても process tap の捕捉信号が約 20dB 減衰する(耳には「少し小さい」程度でも文字起こしには実質無音 ―― tap はダッキング後の信号を拾う)。FaceTime 等が AEC と相手音声を両立できるのは相手音声を自分の VPIO 出力から再生しているためで、他アプリの音を tap で拾う本アプリでは同じ手が使えない。(2) VPIO 有効化で入力フォーマットが多チャンネル化することがある(実測: 5ch Int16 discrete・全チャンネルがビット同一の複製。5ch discrete の CAF は AAC 変換できない)。結論: **AEC は採用せず、スピーカー運用時のエコーはヘッドホン利用で回避する**(将来の対策候補は #59)。
+12. **voice processing(VPIO の AEC)はシステム音声 tap と両立しない。** スピーカー再生音がマイクへ回り込む(「自分」として二重に文字起こしされる)対策に`inputNode.setVoiceProcessingEnabled(true)` を試したところ、次の 2 つが実機で判明した(S4)。(1) VPIO は**システム全体で他アプリ音声をダッキング**し、`voiceProcessingOtherAudioDuckingConfiguration` を `.min` にしても process tap の捕捉信号が約 20dB 減衰する(耳には「少し小さい」程度でも文字起こしには実質無音 ―― tap はダッキング後の信号を拾う)。FaceTime 等が AEC と相手音声を両立できるのは相手音声を自分の VPIO 出力から再生しているためで、他アプリの音を tap で拾う本アプリでは同じ手が使えない。(2) VPIO 有効化で入力フォーマットが多チャンネル化することがある(実測: 5ch Int16 discrete・全チャンネルがビット同一の複製。5ch discrete の CAF は AAC 変換できない)。結論: **VPIO の AEC は採用しない**。回り込み対策は **ソフトウェア AEC(WebRTC AEC3)を自前の同期層越しに適用**する方式へ移行した(ADR-0013、#59 で解決)。VPIO と違いシステム音声 tap をダッキングしないため両立する。
+
+13. **マイク単体モードの AEC は「隠しシステム音声 tap」を要し、システム音声 TCC と結合する(AEC-4 / #64)。** WebRTC AEC3 は near-end(マイク)を消すために far-end 参照(スピーカー出力 = システム音声)を必要とする。そのため「マイクのみ」モードでも回り込みを消すには、録音・文字起こしに出さない参照専用の system tap を裏で起動する。帰結として、**マイク単体モードの初回起動でシステム音声の TCC プロンプトが出る**(ユーザーがマイクだけ選んでいてもシステム音声許可を求められる ―― 用途説明でカバー)。参照 tap が使えない(未許可・沈黙)場合は AEC が打ち消さないだけで、マイク録音・文字起こしは後述の安全弁で実時間継続する(graceful degradation)。診断表示は楽観的に「有効」とし、参照の実状態は権限診断の「システム音声」行で確認する。
+
+    - **参照 tap の直前に process tap を事前プローブしてはいけない(実機で回り込みが残った)。** 可用性判定のつもりで `SystemAudioProbe`(`AudioHardwareCreateProcessTap` → 即 `Destroy`)を挟むと、その直後に作る本番の参照 tap が**無音になり AEC が何も打ち消せない**(診断は「有効」表示のまま回り込みが「自分」に混入する)。両方モードには事前プローブが無く打ち消せている ―― これが唯一の構造差だった。参照 tap は遅延ソースの中で**直接起動**し、両方モードと同一経路(本番 tap を直接消費)に揃える(create→destroy→create の連続が tap を壊す。#3 のゼロサンプル系と同根)。
+    - **給餌スケジューラの「参照未着なら capture を APM に入れない」ゲートで、参照沈黙時にマイクが全損しうる。** `AecFeedScheduler` はこのゲートを持つ(#63 の 3 パターン分岐対策)。参照 tap が沈黙(IOProc 未発火)するとゲートで capture が永遠に保留され、**マイク発話がほぼ全損する**(セッション末に flush されるだけ)。`renderStartGrace`(既定 3 秒 ―― 両方モードの tap 起動遅延 +1.2 秒より十分大きく取り正常時は誤発動しない)を超えたら参照なしで実時間素通し解放する安全弁を必ず持たせる(#70 と同根)。
 
 ## CI
 

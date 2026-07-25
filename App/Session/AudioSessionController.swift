@@ -39,8 +39,6 @@ final class AudioSessionController {
     /// 捕捉する入力ソースの選択(マイクのみ / システム音声のみ / 両方)。
     /// 実行中の変更はメニュー側で無効化する。
     var selection: CaptureSelection = .microphone
-    /// 一定音量以上の入力を検知しているストリーム(入力インジケータ用。#63)。
-    private(set) var activeInputs: Set<StreamKind> = []
 
     var menuState: MenuState {
         if lastError != nil { return .error }
@@ -106,7 +104,6 @@ final class AudioSessionController {
         isRunning = true
         lastError = nil
         log = TranscriptLog()
-        activeInputs = []
         sessionTask = Task { [weak self] in
             guard let self else { return }
             await runSession()
@@ -185,7 +182,6 @@ final class AudioSessionController {
             fail(error.localizedDescription)
         }
         isRunning = false
-        activeInputs = []
         await finalizeRecordings(sessions.map(\.recorder), in: sessionDirectory)
     }
 
@@ -238,25 +234,19 @@ final class AudioSessionController {
                     throw CaptureError.inputUnavailable(session.stream)
                 }
                 let label = session.stream.rawValue
-                let stream = session.stream
                 let streamEngine = session.engine
                 let routed = AudioRouter.route(
                     source: source,
                     transcriptionFormat: targetFormat,
-                    recorder: session.recorder,
-                    onFirstBuffer: {
-                        // 捕捉開始オフセットの計測(S4 の時刻同期確認)。ストリーム間の
-                        // 差分が録音ファイル先頭のずれの目安になる。
-                        let ms = Int((sessionStart.duration(to: .now) / .milliseconds(1)).rounded())
-                        logger.notice(
-                            "first buffer (\(label, privacy: .public)): +\(ms, privacy: .public)ms"
-                        )
-                    },
-                    onActivity: { [weak self] active in
-                        // 入力インジケータ(#63)。状態遷移時のみ届く。
-                        Task { @MainActor in self?.setActivity(stream, active: active) }
-                    }
-                )
+                    recorder: session.recorder
+                ) {
+                    // 捕捉開始オフセットの計測(S4 の時刻同期確認)。ストリーム間の
+                    // 差分が録音ファイル先頭のずれの目安になる。
+                    let ms = Int((sessionStart.duration(to: .now) / .milliseconds(1)).rounded())
+                    logger.notice(
+                        "first buffer (\(label, privacy: .public)): +\(ms, privacy: .public)ms"
+                    )
+                }
                 group.addTask { [weak self] in
                     for try await segment in streamEngine.segments(from: routed) {
                         await self?.apply(segment)
@@ -270,14 +260,6 @@ final class AudioSessionController {
     /// セグメントをライブログへ適用する(TaskGroup の子タスクから MainActor へ合流)。
     private func apply(_ segment: TranscriptSegment) {
         log.apply(segment)
-    }
-
-    private func setActivity(_ stream: StreamKind, active: Bool) {
-        if active {
-            activeInputs.insert(stream)
-        } else {
-            activeInputs.remove(stream)
-        }
     }
 
     /// 録音を閉じ、短すぎる/空のセッションは破棄する(全ストリームの**最長**で判定、

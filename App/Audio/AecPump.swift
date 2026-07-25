@@ -39,6 +39,9 @@ actor AecPump {
     private var output: AsyncThrowingStream<AecFrame, Error>.Continuation?
     private var started = false
     private var processedFrames = 0
+    /// 診断: capture 側の正規化タイムラインの現在端(初回 render とのオフセット計測用)。
+    private var captureFrontierTime: TimeInterval?
+    private var loggedFirstRender = false
 
     /// ブリッジ契約の内部フォーマット。
     private static let aecFormat = AVAudioFormat(
@@ -143,6 +146,19 @@ actor AecPump {
         }
         renderDrift.record(sampleCount: samples.count, hostTime: item.hostTime)
         let time = renderTimeline.normalize(hostTime: item.hostTime, sampleCount: samples.count)
+        if !loggedFirstRender {
+            loggedFirstRender = true
+            // セッション先頭のストリーム間アンカー差の実測(#63 のパターン切り分け用)。
+            // 0 近傍が期待値。大きな正負はタイムスタンプ意味差/ウォームアップ誤差のサイン。
+            let deltaMs = Int(((captureFrontierTime ?? time) - time) * 1000)
+            let held = scheduler.heldCount
+            logger.notice(
+                """
+                aec first render: capture frontier vs render start = \
+                \(deltaMs, privacy: .public)ms held=\(held, privacy: .public)
+                """
+            )
+        }
         let frames = renderFramer.append(samples: samples, hostTime: time)
         guard let last = frames.last else { return }
         for frame in frames {
@@ -167,6 +183,7 @@ actor AecPump {
         }
         captureDrift.record(sampleCount: samples.count, hostTime: item.hostTime)
         let time = captureTimeline.normalize(hostTime: item.hostTime, sampleCount: samples.count)
+        captureFrontierTime = time + Double(samples.count) / 48000
         let now = Self.currentHostSeconds()
         for frame in captureFramer.append(samples: samples, hostTime: time) {
             scheduler.hold(frame, arrivedAt: now)
@@ -215,12 +232,16 @@ actor AecPump {
         let renderDiscarded = renderFramer.discardedSamples
         let captureRebases = captureTimeline.rebases
         let renderRebases = renderTimeline.rebases
+        let timeouts = scheduler.timeoutReleases
+        let droppedHeld = scheduler.droppedHeldFrames
         logger.notice(
             """
             aec finished: frames=\(frames, privacy: .public) \
             filled=\(filled, privacy: .public) \
             droppedRender=\(dropped, privacy: .public) \
             held=\(held, privacy: .public) \
+            timeoutReleases=\(timeouts, privacy: .public) \
+            droppedHeld=\(droppedHeld, privacy: .public) \
             capDiscard=\(captureDiscarded, privacy: .public) \
             renDiscard=\(renderDiscarded, privacy: .public) \
             capRebase=\(captureRebases, privacy: .public) \
@@ -242,13 +263,18 @@ actor AecPump {
         }
     }
 
-    /// 30 秒(3000 フレーム)ごとにドリフト計測値を残す(補正判断の材料。ADR-0013)。
+    /// 30 秒(3000 フレーム)ごとにドリフト計測値と滞留診断を残す(補正判断の材料。
+    /// timeout が render 稼働中に増え続けるならアンカー異常のサイン。ADR-0013 / #63)。
     private func logDriftIfNeeded() {
         guard processedFrames % 3000 == 0 else { return }
         let capture = captureDrift.driftPPM.map { String(format: "%.1f", $0) } ?? "n/a"
         let render = renderDrift.driftPPM.map { String(format: "%.1f", $0) } ?? "n/a"
+        let timeouts = scheduler.timeoutReleases
         logger.notice(
-            "aec drift ppm: capture=\(capture, privacy: .public) render=\(render, privacy: .public)"
+            """
+            aec drift ppm: capture=\(capture, privacy: .public) \
+            render=\(render, privacy: .public) timeoutReleases=\(timeouts, privacy: .public)
+            """
         )
     }
 

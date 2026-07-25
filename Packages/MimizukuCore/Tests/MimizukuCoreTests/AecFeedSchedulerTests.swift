@@ -29,15 +29,39 @@ struct AecFeedSchedulerTests {
         let released = scheduler.release(now: 0.01)
         #expect(released.map(\.hostTime) == [0, duration])
         #expect(scheduler.heldCount == 1)
+        #expect(scheduler.timeoutReleases == 0)
     }
 
-    @Test("render が止まっても holdTimeout で解放される")
-    func timeoutReleasesWhenRenderStalls() {
+    @Test("render 起動前はタイムアウトしても解放しない(参照なし給餌を防ぐ)")
+    func noTimeoutBeforeRenderStarts() {
         var scheduler = AecFeedScheduler(holdTimeout: 0.2)
-        scheduler.hold(frame(1, at: 0), arrivedAt: 100.0)
+        scheduler.hold(frame(1, at: 0), arrivedAt: 0)
+        // render は一度も来ていない → いくら待っても解放されない。
+        #expect(scheduler.release(now: 100).isEmpty)
+        #expect(scheduler.heldCount == 1)
+        #expect(scheduler.timeoutReleases == 0)
+    }
+
+    @Test("render 稼働後に停止したらタイムアウトで解放されカウントされる")
+    func timeoutAfterRenderStarted() {
+        var scheduler = AecFeedScheduler(holdTimeout: 0.2)
+        // render が一度流れて frontier が立つ。
+        scheduler.advanceRenderFrontier(to: 0)
+        scheduler.hold(frame(1, at: duration * 10), arrivedAt: 100.0)
         #expect(scheduler.release(now: 100.1).isEmpty)
         let released = scheduler.release(now: 100.2)
         #expect(released.count == 1)
+        #expect(scheduler.timeoutReleases == 1)
+    }
+
+    @Test("保留上限を超えたら古い方から捨てて有界化する")
+    func heldQueueIsBounded() {
+        var scheduler = AecFeedScheduler(maxHeldFrames: 3)
+        for index in 0 ..< 5 {
+            scheduler.hold(frame(Int16(index), at: Double(index) * duration), arrivedAt: 0)
+        }
+        #expect(scheduler.heldCount == 3)
+        #expect(scheduler.droppedHeldFrames == 2)
     }
 
     @Test("mic 塊が先着しても render 到着後の給餌で実 render が破棄されない(相互作用)")
@@ -72,14 +96,19 @@ struct AecFeedSchedulerTests {
         #expect(aligner.filledSilenceFrames == 0)
     }
 
-    @Test("render 未開始でもタイムアウト後は解放され、aligner は render 無しで通す")
-    func timeoutPathFeedsWithoutRender() {
+    @Test("render 稼働後の一時停止では解放され、aligner は無音充填で通す")
+    func timeoutPathAfterRenderFeedsWithoutRender() {
         var scheduler = AecFeedScheduler(holdTimeout: 0.2)
         var aligner = AecAligner()
-        scheduler.hold(frame(1, at: 0), arrivedAt: 0)
+        // render が一度流れた(scheduler・aligner とも起動済み)。
+        aligner.appendRender(frame(100, at: 0))
+        scheduler.advanceRenderFrontier(to: 0)
+        // その後 render が止まり、100ms 先の capture がタイムアウト解放される。
+        scheduler.hold(frame(1, at: duration * 10), arrivedAt: 0)
         let released = scheduler.release(now: 0.25)
         #expect(released.count == 1)
+        // aligner は capture 時刻まで無音充填してから capture を返す。
         let step = aligner.appendCapture(released[0])
-        #expect(step.render.isEmpty)
+        #expect(!step.render.isEmpty)
     }
 }

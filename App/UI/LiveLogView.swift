@@ -48,6 +48,17 @@ struct LiveLogView: View {
                     ForEach(controller.log.volatileLines, id: \.stream) { segment in
                         row(for: segment, dimmed: true)
                     }
+                    // 入力インジケータ(#63): 一定音量以上を検知しているのに volatile が
+                    // まだ無いストリームに「・・・」を出す(認識器の遅延と無関係の即時
+                    // フィードバック)。volatile が出たら役割を引き継いで消える。
+                    ForEach(listeningStreams, id: \.self) { stream in
+                        HStack(alignment: .firstTextBaseline, spacing: 8) {
+                            Text(Self.streamLabel(stream))
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                            ActivityDots()
+                        }
+                    }
                     Color.clear.frame(height: 1).id(bottomAnchor)
                 }
                 .padding()
@@ -73,10 +84,41 @@ struct LiveLogView: View {
         }
     }
 
+    /// 入力を検知しているが volatile 行がまだ無いストリーム(表示順は宣言順で安定)。
+    private var listeningStreams: [StreamKind] {
+        StreamKind.allCases.filter { stream in
+            controller.activeInputs.contains(stream) && controller.log.volatile(for: stream) == nil
+        }
+    }
+
     private static func streamLabel(_ stream: StreamKind) -> String {
         switch stream {
         case .microphone: "自分"
         case .systemAudio: "相手"
+        }
+    }
+}
+
+/// 入力検知インジケータ(・・・)。opacity のフェーズだけで動かし(spring 不使用)、
+/// Reduce Motion 時は静的な「…」にする(macos-ui-design)。
+private struct ActivityDots: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        if reduceMotion {
+            Text("…").foregroundStyle(.secondary)
+        } else {
+            TimelineView(.periodic(from: .now, by: 0.35)) { context in
+                let phase = Int(context.date.timeIntervalSinceReferenceDate / 0.35) % 3
+                HStack(spacing: 3) {
+                    ForEach(0 ..< 3, id: \.self) { index in
+                        Circle()
+                            .frame(width: 4, height: 4)
+                            .opacity(phase == index ? 1.0 : 0.3)
+                    }
+                }
+                .foregroundStyle(.secondary)
+            }
         }
     }
 }

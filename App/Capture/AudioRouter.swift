@@ -95,11 +95,16 @@ enum AudioRouter {
     ///
     /// `onFirstBuffer` は最初のバッファ処理前に 1 度だけ呼ばれる(複数ストリーム間の
     /// 捕捉開始オフセット計測用。S4 の時刻同期の受け入れ確認)。
+    ///
+    /// `onActivity` は「一定音量以上の入力を検知しているか」の**状態遷移時のみ**呼ばれる
+    /// (入力インジケータ用。#63)。レベル計算は読み取りのみ・await なしで、音声の
+    /// 流れとタイミングには影響しない。
     static func route(
         source: any AudioSource,
         transcriptionFormat: AVAudioFormat,
         recorder: AudioFileWriter,
-        onFirstBuffer: (@Sendable () -> Void)? = nil
+        onFirstBuffer: (@Sendable () -> Void)? = nil,
+        onActivity: (@Sendable (Bool) -> Void)? = nil
     ) -> RoutedAudioSource {
         let (stream, continuation) = AsyncThrowingStream.makeStream(of: AVAudioPCMBuffer.self)
 
@@ -108,8 +113,18 @@ enum AudioRouter {
             // 注意: optional 連鎖(`converter?.convertedCopy`)を挟むと戻り値の sending 性が
             // 失われるため、呼び出しは非 optional の let に剥がしてから行う。
             var converters: (transcription: BufferConverter, recording: BufferConverter)?
+            var activityGate = AudioActivityGate()
+            let activityClock = ContinuousClock.now
             do {
                 for try await buffer in source.buffers() {
+                    if let onActivity, let level = AudioLevelSupport.levelDBFS(of: buffer) {
+                        let elapsed = activityClock.duration(to: .now)
+                        let seconds = Double(elapsed.components.seconds)
+                            + Double(elapsed.components.attoseconds) * 1e-18
+                        if let change = activityGate.observe(levelDBFS: level, at: seconds) {
+                            onActivity(change)
+                        }
+                    }
                     let (transcriptionConverter, recordingCopier) = if let converters {
                         converters
                     } else {
@@ -151,5 +166,37 @@ enum AudioRouter {
             throw CaptureError.converterUnavailable(from: sourceFormat, to: targetFormat)
         }
         return converter
+    }
+}
+
+/// 入力インジケータ用の軽量レベル計算(表示用途。ストライド走査で十分)。
+enum AudioLevelSupport {
+    /// ch0 の RMS を dBFS で返す(float32 / int16 のみ対応。それ以外は nil)。
+    static func levelDBFS(of buffer: AVAudioPCMBuffer) -> Double? {
+        let frames = Int(buffer.frameLength)
+        guard frames > 0 else { return nil }
+        let stride = 8
+        var sum = 0.0
+        var sampled = 0
+        if let channels = buffer.floatChannelData {
+            let data = channels[0]
+            for index in Swift.stride(from: 0, to: frames, by: stride) {
+                let value = Double(data[index])
+                sum += value * value
+                sampled += 1
+            }
+        } else if let channels = buffer.int16ChannelData {
+            let data = channels[0]
+            for index in Swift.stride(from: 0, to: frames, by: stride) {
+                let value = Double(data[index]) / 32768
+                sum += value * value
+                sampled += 1
+            }
+        } else {
+            return nil
+        }
+        guard sampled != 0 else { return nil }
+        let rms = (sum / Double(sampled)).squareRoot()
+        return rms > 0 ? 20 * log10(rms) : -160
     }
 }

@@ -74,7 +74,11 @@ targets:
     deploymentTarget: "26.0"
     sources:
       - path: Tools/AecProbe
+      # CLI に必要なのは Obj-C++ ブリッジのみ。AecPump(actor)は App 専用
+      # (MimizukuCore / App/Capture に依存するため除外)。
       - path: App/Audio
+        excludes:
+          - AecPump.swift
     settings:
       base:
         PRODUCT_NAME: aecprobe

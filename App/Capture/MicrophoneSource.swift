@@ -9,6 +9,10 @@ enum CaptureError: Error, LocalizedError {
     case converterUnavailable(from: AVAudioFormat, to: AVAudioFormat)
     /// 録音用バッファのコピーに失敗した(録音経路はドロップ禁止のため失敗として扱う)。
     case bufferCopyFailed
+    /// エコーキャンセル(AEC ポンプ)の処理に失敗した(マイク経路の欠損は許さない)。
+    case aecProcessingFailed
+    /// 捕捉ソースの配線が欠けている(到達しない想定の防御。無言 skip にしない)。
+    case inputUnavailable(StreamKind)
 
     var errorDescription: String? {
         switch self {
@@ -16,6 +20,10 @@ enum CaptureError: Error, LocalizedError {
             "音声(\(from.sampleRate)Hz)から文字起こし用フォーマット(\(to.sampleRate)Hz)への変換器を作成できませんでした。"
         case .bufferCopyFailed:
             "録音バッファの確保に失敗しました。"
+        case .aecProcessingFailed:
+            "エコーキャンセル処理に失敗しました。"
+        case let .inputUnavailable(stream):
+            "捕捉ソースの配線に失敗しました(\(stream.rawValue))。"
         }
     }
 }

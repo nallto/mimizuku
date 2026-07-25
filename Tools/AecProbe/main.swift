@@ -219,6 +219,20 @@ private func estimateEchoLag(mic: [Int16], system: [Int16]) -> Int {
 // MARK: - メイン
 
 let arguments = CommandLine.arguments
+// 単体文字起こしモード: 任意の音声ファイルを AEC を通さずそのまま文字起こしする
+// (録音品質と認識器の切り分け用)。
+if arguments.count == 3, arguments[1] == "--transcribe-only" {
+    do {
+        for line in try await transcribe(url: URL(fileURLWithPath: arguments[2])) {
+            print(line)
+        }
+        exit(0)
+    } catch {
+        print("error: \(error)")
+        exit(1)
+    }
+}
+
 guard arguments.count == 4 || (arguments.count == 5 && arguments[4] == "--transcribe") else {
     print(ProbeError.usage)
     exit(2)

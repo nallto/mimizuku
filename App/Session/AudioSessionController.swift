@@ -170,8 +170,11 @@ final class AudioSessionController {
             )
         }
 
+        // 捕捉ソースの配線。「両方」では AEC ポンプを挟む(失敗時は従来経路)。
+        let inputs = await makeInputs(for: streams)
+
         do {
-            try await runStreams(sessions, targetFormat: targetFormat)
+            try await runStreams(sessions, inputs: inputs, targetFormat: targetFormat)
         } catch is CancellationError {
             // 通常停止(stop によるキャンセル)。無視。
         } catch {
@@ -218,15 +221,17 @@ final class AudioSessionController {
     /// (グループのキャンセルで他ストリームの捕捉・録音も解放される)。
     private func runStreams(
         _ sessions: [StreamSession],
+        inputs: [StreamKind: any AudioSource],
         targetFormat: AVAudioFormat
     ) async throws {
         let sessionStart = ContinuousClock.now
         let logger = logger
         try await withThrowingTaskGroup(of: Void.self) { group in
             for session in sessions {
-                let source: any AudioSource = switch session.stream {
-                case .microphone: MicrophoneSource()
-                case .systemAudio: SystemAudioTapSource()
+                guard let source = inputs[session.stream] else {
+                    // 到達しない想定(inputs と sessions は同じ streams から作られる)だが、
+                    // 万一の欠損を無言 skip にしない(録音・文字起こしの黙殺を許さない)。
+                    throw CaptureError.inputUnavailable(session.stream)
                 }
                 let label = session.stream.rawValue
                 let streamEngine = session.engine
@@ -318,5 +323,44 @@ final class AudioSessionController {
     private func fail(_ message: String) {
         lastError = message
         isRunning = false
+    }
+}
+
+// MARK: - 捕捉ソースの配線
+
+private extension AudioSessionController {
+    /// 「両方」では AEC ポンプ(#63、ADR-0013)を挟み、システム音声を far-end 参照に
+    /// tee しつつ、マイクは処理後ストリームを流す(文字起こし・録音とも処理後音声に
+    /// なる)。ブリッジ初期化に失敗した場合は error ログを残して従来経路(AEC なし)へ
+    /// フォールバックする(機能喪失にしない)。単独モードは従来どおり。
+    func makeInputs(for streams: [StreamKind]) async -> [StreamKind: any AudioSource] {
+        guard streams.contains(.microphone), streams.contains(.systemAudio) else {
+            var inputs: [StreamKind: any AudioSource] = [:]
+            for stream in streams {
+                switch stream {
+                case .microphone: inputs[stream] = MicrophoneSource()
+                case .systemAudio: inputs[stream] = SystemAudioTapSource()
+                }
+            }
+            return inputs
+        }
+        let mic = MicrophoneSource()
+        let system = SystemAudioTapSource()
+        let pump = AecPump()
+        guard await pump.start() else {
+            logger.error("aec unavailable, falling back to unprocessed capture")
+            return [.microphone: mic, .systemAudio: system]
+        }
+        logger.notice("aec active (both mode)")
+        // DeferredAudioSource で包み、ストリーム生成(= HAL 照会・engine 起動を含む)を
+        // ルーター Task(off-main)まで遅延する(domain-pitfalls #10)。
+        return [
+            .systemAudio: DeferredAudioSource(kind: .systemAudio) {
+                pump.referenceTee(system.timestampedBuffers())
+            },
+            .microphone: DeferredAudioSource(kind: .microphone) {
+                pump.processedCapture(from: mic.timestampedBuffers())
+            }
+        ]
     }
 }

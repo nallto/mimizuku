@@ -117,12 +117,28 @@ actor SpeechEngine: TranscriptionEngine {
             // (システム音声 tap の無音は厳密ゼロ。マイクはノイズフロアで非ゼロのため
             // 影響しない)。スキップで解析タイムラインが録音とずれないよう、全バッファに
             // 開始時刻を明示して供給する(TranscriptSegment.start/end の原点維持)。
+            //
+            // ただしスキップしたままだと認識器は発話終端の無音を観測できず、volatile が
+            // 確定しないまま残る(動画停止 = 完全無音で灰色行が残り続ける)。ゼロ連続が
+            // 閾値を超えたら `finalize(through:)` で保留中の結果を明示的に確定させる
+            // (docs/domain-pitfalls.md #11)。
             var framesElapsed: Int64 = 0
+            var zeroRunSeconds: Double = 0
+            var hasUnfinalizedInput = false
             for try await buffer in source.buffers() {
                 let sampleRate = CMTimeScale(buffer.format.sampleRate)
                 let startTime = CMTime(value: framesElapsed, timescale: max(sampleRate, 1))
                 framesElapsed += Int64(buffer.frameLength)
-                guard !Self.isAllZero(buffer) else { continue }
+                guard !Self.isAllZero(buffer) else {
+                    zeroRunSeconds += Double(buffer.frameLength) / buffer.format.sampleRate
+                    if hasUnfinalizedInput, zeroRunSeconds >= Self.silenceFinalizeSeconds {
+                        try await analyzer.finalize(through: nil)
+                        hasUnfinalizedInput = false
+                    }
+                    continue
+                }
+                zeroRunSeconds = 0
+                hasUnfinalizedInput = true
                 inputContinuation.yield(AnalyzerInput(buffer: buffer, bufferStartTime: startTime))
             }
             inputContinuation.finish()
@@ -136,6 +152,10 @@ actor SpeechEngine: TranscriptionEngine {
             throw error
         }
     }
+
+    /// 完全無音(ゼロスキップ)がこの秒数続いたら保留結果を確定させる。
+    /// 短すぎると発話の合間で細切れに確定し、長すぎると灰色(volatile)行が残って見える。
+    private static let silenceFinalizeSeconds = 1.0
 
     // MARK: - Helpers
 

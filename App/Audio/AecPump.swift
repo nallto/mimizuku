@@ -61,75 +61,19 @@ actor AecPump {
         return true
     }
 
-    // MARK: - ストリーム配線(nonisolated アダプタ)
-
-    /// far-end 参照の tee: システム音声を取り込みつつ、バッファをそのまま下流
-    /// (相手側の文字起こし・録音)へ流す。取り込みは読み取りのみ(独立コピーへ変換)で、
-    /// 下流も読み取りのみのため共有読み取りは安全。
-    nonisolated func referenceTee(
-        _ upstream: AsyncThrowingStream<TimestampedAudioBuffer, Error>
-    ) -> AsyncThrowingStream<AVAudioPCMBuffer, Error> {
-        AsyncThrowingStream { continuation in
-            let task = Task {
-                do {
-                    for try await item in upstream {
-                        await self.ingestRender(item)
-                        // バッファは独立コピーの単一系列(TimestampedAudioBuffer の
-                        // 正当化コメント参照)。
-                        nonisolated(unsafe) let buffer = item.buffer
-                        continuation.yield(buffer)
-                    }
-                    continuation.finish()
-                } catch {
-                    continuation.finish(throwing: error)
-                }
-            }
-            continuation.onTermination = { _ in task.cancel() }
-        }
-    }
-
-    /// near-end(マイク)を AEC 処理し、処理後バッファ(48kHz/mono/int16)を流す。
-    nonisolated func processedCapture(
-        from upstream: AsyncThrowingStream<TimestampedAudioBuffer, Error>
-    ) -> AsyncThrowingStream<AVAudioPCMBuffer, Error> {
-        let (frames, framesContinuation) = AsyncThrowingStream.makeStream(of: AecFrame.self)
-        // 給餌タスク: 出力先を登録してから取り込む(登録前のフレーム欠落を防ぐ順序)。
-        let feedTask = Task {
-            await self.setOutput(framesContinuation)
-            do {
-                for try await item in upstream {
-                    await self.ingestCapture(item)
-                }
-                await self.finishCapture(error: nil)
-            } catch {
-                await self.finishCapture(error: error)
-            }
-        }
-        return AsyncThrowingStream { continuation in
-            let mapTask = Task {
-                do {
-                    for try await frame in frames {
-                        guard let buffer = Self.makeBuffer(from: frame) else {
-                            throw CaptureError.aecProcessingFailed
-                        }
-                        continuation.yield(buffer)
-                    }
-                    continuation.finish()
-                } catch {
-                    continuation.finish(throwing: error)
-                }
-            }
-            continuation.onTermination = { _ in
-                mapTask.cancel()
-                feedTask.cancel()
-            }
-        }
-    }
-
     // MARK: - 取り込み(actor 内)
 
     private func setOutput(_ continuation: AsyncThrowingStream<AecFrame, Error>.Continuation) {
         output = continuation
+    }
+
+    /// 隠し参照 tap のストリームが失敗して終わった(mic-only)。マイク経路は止めず、
+    /// 以後は参照なしで継続する(scheduler の安全弁が実時間で素通し解放する)。
+    /// error でなく notice: TCC 未許可等は想定内の劣化で、マイク録音・文字起こしは継続する。
+    private func noteReferenceFailed(_ error: any Error) {
+        logger.notice(
+            "aec hidden reference ended: \(error.localizedDescription, privacy: .public)"
+        )
     }
 
     private func ingestRender(_ item: TimestampedAudioBuffer) {
@@ -227,6 +171,7 @@ actor AecPump {
         let frames = processedFrames
         let filled = aligner.filledSilenceFrames
         let dropped = aligner.droppedRenderFrames
+        let leadDropped = aligner.droppedLeadRenderFrames
         let held = scheduler.heldCount
         let captureDiscarded = captureFramer.discardedSamples
         let renderDiscarded = renderFramer.discardedSamples
@@ -234,14 +179,17 @@ actor AecPump {
         let renderRebases = renderTimeline.rebases
         let timeouts = scheduler.timeoutReleases
         let droppedHeld = scheduler.droppedHeldFrames
+        let stalled = scheduler.renderStalledReleases
         logger.notice(
             """
             aec finished: frames=\(frames, privacy: .public) \
             filled=\(filled, privacy: .public) \
             droppedRender=\(dropped, privacy: .public) \
+            leadDropped=\(leadDropped, privacy: .public) \
             held=\(held, privacy: .public) \
             timeoutReleases=\(timeouts, privacy: .public) \
             droppedHeld=\(droppedHeld, privacy: .public) \
+            renderStalled=\(stalled, privacy: .public) \
             capDiscard=\(captureDiscarded, privacy: .public) \
             renDiscard=\(renderDiscarded, privacy: .public) \
             capRebase=\(captureRebases, privacy: .public) \
@@ -304,5 +252,106 @@ actor AecPump {
         }
         buffer.frameLength = AVAudioFrameCount(frame.samples.count)
         return buffer
+    }
+}
+
+// MARK: - ストリーム配線(nonisolated アダプタ)
+
+extension AecPump {
+    /// far-end 参照の tee: システム音声を取り込みつつ、バッファをそのまま下流
+    /// (相手側の文字起こし・録音)へ流す。取り込みは読み取りのみ(独立コピーへ変換)で、
+    /// 下流も読み取りのみのため共有読み取りは安全。「両方」モードのシステム音声側。
+    nonisolated func referenceTee(
+        _ upstream: AsyncThrowingStream<TimestampedAudioBuffer, Error>
+    ) -> AsyncThrowingStream<AVAudioPCMBuffer, Error> {
+        AsyncThrowingStream { continuation in
+            let task = Task {
+                do {
+                    for try await item in upstream {
+                        await self.ingestRender(item)
+                        // バッファは独立コピーの単一系列(TimestampedAudioBuffer の
+                        // 正当化コメント参照)。
+                        nonisolated(unsafe) let buffer = item.buffer
+                        continuation.yield(buffer)
+                    }
+                    continuation.finish()
+                } catch {
+                    continuation.finish(throwing: error)
+                }
+            }
+            continuation.onTermination = { _ in task.cancel() }
+        }
+    }
+
+    /// near-end(マイク)を AEC 処理し、処理後バッファ(48kHz/mono/int16)を流す。
+    /// far-end 参照は別経路(`referenceTee`)で供給される「両方」モード用。
+    nonisolated func processedCapture(
+        from upstream: AsyncThrowingStream<TimestampedAudioBuffer, Error>
+    ) -> AsyncThrowingStream<AVAudioPCMBuffer, Error> {
+        makeProcessedStream(mic: upstream, reference: nil)
+    }
+
+    /// マイク単体モード用: near-end(マイク)を AEC 処理しつつ、far-end 参照を**隠し tap**
+    /// から取り込む(参照は録音・文字起こしには出さない ―― AEC-4。ADR-0013 の 4)。
+    /// 参照ストリームの失敗は AEC の劣化にとどめ、マイク(処理後)は流し続ける
+    /// (graceful degradation ―― TCC 未許可・tap 沈黙でも録音・文字起こしを止めない。
+    /// 参照が来なければ scheduler の安全弁が実時間で素通し解放する)。
+    /// `reference` は消費開始まで tap を生成しない遅延クロージャ(off-main で評価)。
+    nonisolated func processedCaptureWithReference(
+        mic: AsyncThrowingStream<TimestampedAudioBuffer, Error>,
+        reference: @escaping @Sendable () -> AsyncThrowingStream<TimestampedAudioBuffer, Error>
+    ) -> AsyncThrowingStream<AVAudioPCMBuffer, Error> {
+        makeProcessedStream(mic: mic, reference: reference)
+    }
+
+    private nonisolated func makeProcessedStream(
+        mic: AsyncThrowingStream<TimestampedAudioBuffer, Error>,
+        reference: (@Sendable () -> AsyncThrowingStream<TimestampedAudioBuffer, Error>)?
+    ) -> AsyncThrowingStream<AVAudioPCMBuffer, Error> {
+        let (frames, framesContinuation) = AsyncThrowingStream.makeStream(of: AecFrame.self)
+        // 給餌タスク: 出力先を登録してから取り込む(登録前のフレーム欠落を防ぐ順序)。
+        let feedTask = Task {
+            await self.setOutput(framesContinuation)
+            do {
+                for try await item in mic {
+                    await self.ingestCapture(item)
+                }
+                await self.finishCapture(error: nil)
+            } catch {
+                await self.finishCapture(error: error)
+            }
+        }
+        // 隠し参照(mic-only)。参照 tap の失敗はマイク経路を止めず、AEC の劣化にとどめる。
+        let referenceTask = reference.map { make in
+            Task {
+                do {
+                    for try await item in make() {
+                        await self.ingestRender(item)
+                    }
+                } catch {
+                    await self.noteReferenceFailed(error)
+                }
+            }
+        }
+        return AsyncThrowingStream { continuation in
+            let mapTask = Task {
+                do {
+                    for try await frame in frames {
+                        guard let buffer = Self.makeBuffer(from: frame) else {
+                            throw CaptureError.aecProcessingFailed
+                        }
+                        continuation.yield(buffer)
+                    }
+                    continuation.finish()
+                } catch {
+                    continuation.finish(throwing: error)
+                }
+            }
+            continuation.onTermination = { _ in
+                mapTask.cancel()
+                feedTask.cancel()
+                referenceTask?.cancel()
+            }
+        }
     }
 }

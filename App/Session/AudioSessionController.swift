@@ -28,6 +28,17 @@ final class AudioSessionController {
         case error
     }
 
+    /// エコーキャンセル(AEC)の適用状態(権限診断画面の表示用、#64)。直近のセッション
+    /// 開始時に確定する。UI は「回り込み対策が効いているか」をこれで表明する。
+    enum AecStatus: Equatable {
+        /// 未実行、またはこのモードでは AEC を使わない(システム音声のみ ―― near-end 無し)。
+        case notApplicable
+        /// AEC を適用中(両方モード、またはマイク単体 + 隠し参照 tap が利用可能)。
+        case active
+        /// AEC を使えず素の音声で動作中(マイク単体で参照 tap 不可、または初期化失敗)。
+        case unavailable(reason: String)
+    }
+
     /// 追記されていく確定行 + 現在の volatile 行。
     private(set) var log = TranscriptLog()
     /// モデルアセットの導入状態(UI バナー用)。
@@ -39,6 +50,10 @@ final class AudioSessionController {
     /// 捕捉する入力ソースの選択(マイクのみ / システム音声のみ / 両方)。
     /// 実行中の変更はメニュー側で無効化する。
     var selection: CaptureSelection = .microphone
+    /// 直近のセッションで AEC が効いているか(権限診断画面の表示用、#64)。
+    /// 外部からは読み取り専用。配線層(`AudioSessionController+Inputs`)からは
+    /// `applyAecStatus(_:)` 経由でのみ更新する(UI からの書き換えを防ぐ)。
+    private(set) var aecStatus: AecStatus = .notApplicable
 
     var menuState: MenuState {
         if lastError != nil { return .error }
@@ -52,7 +67,8 @@ final class AudioSessionController {
     private let locale = Locale(identifier: "ja-JP")
     private let engine = SpeechEngine()
     private let layout = SessionLayout.defaultLayout()
-    private let logger = Logger(subsystem: "dev.nallto.Mimizuku", category: "session")
+    /// 配線層 extension(別ファイル)からも使うため internal(この型の実装内に限る)。
+    let logger = Logger(subsystem: "dev.nallto.Mimizuku", category: "session")
     private var sessionTask: Task<Void, Never>?
     /// 進行中のアセット準備。並行呼び出し(起動時プリフェッチと開始時)を 1 本に束ねる。
     private var prepareTask: Task<Void, Never>?
@@ -324,43 +340,9 @@ final class AudioSessionController {
         lastError = message
         isRunning = false
     }
-}
 
-// MARK: - 捕捉ソースの配線
-
-private extension AudioSessionController {
-    /// 「両方」では AEC ポンプ(#63、ADR-0013)を挟み、システム音声を far-end 参照に
-    /// tee しつつ、マイクは処理後ストリームを流す(文字起こし・録音とも処理後音声に
-    /// なる)。ブリッジ初期化に失敗した場合は error ログを残して従来経路(AEC なし)へ
-    /// フォールバックする(機能喪失にしない)。単独モードは従来どおり。
-    func makeInputs(for streams: [StreamKind]) async -> [StreamKind: any AudioSource] {
-        guard streams.contains(.microphone), streams.contains(.systemAudio) else {
-            var inputs: [StreamKind: any AudioSource] = [:]
-            for stream in streams {
-                switch stream {
-                case .microphone: inputs[stream] = MicrophoneSource()
-                case .systemAudio: inputs[stream] = SystemAudioTapSource()
-                }
-            }
-            return inputs
-        }
-        let mic = MicrophoneSource()
-        let system = SystemAudioTapSource()
-        let pump = AecPump()
-        guard await pump.start() else {
-            logger.error("aec unavailable, falling back to unprocessed capture")
-            return [.microphone: mic, .systemAudio: system]
-        }
-        logger.notice("aec active (both mode)")
-        // DeferredAudioSource で包み、ストリーム生成(= HAL 照会・engine 起動を含む)を
-        // ルーター Task(off-main)まで遅延する(domain-pitfalls #10)。
-        return [
-            .systemAudio: DeferredAudioSource(kind: .systemAudio) {
-                pump.referenceTee(system.timestampedBuffers())
-            },
-            .microphone: DeferredAudioSource(kind: .microphone) {
-                pump.processedCapture(from: mic.timestampedBuffers())
-            }
-        ]
+    /// AEC 状態を更新する(配線層 `AudioSessionController+Inputs` からの唯一の書き込み口)。
+    func applyAecStatus(_ status: AecStatus) {
+        aecStatus = status
     }
 }

@@ -171,6 +171,7 @@ actor AecPump {
         let frames = processedFrames
         let filled = aligner.filledSilenceFrames
         let dropped = aligner.droppedRenderFrames
+        let leadDropped = aligner.droppedLeadRenderFrames
         let held = scheduler.heldCount
         let captureDiscarded = captureFramer.discardedSamples
         let renderDiscarded = renderFramer.discardedSamples
@@ -184,6 +185,7 @@ actor AecPump {
             aec finished: frames=\(frames, privacy: .public) \
             filled=\(filled, privacy: .public) \
             droppedRender=\(dropped, privacy: .public) \
+            leadDropped=\(leadDropped, privacy: .public) \
             held=\(held, privacy: .public) \
             timeoutReleases=\(timeouts, privacy: .public) \
             droppedHeld=\(droppedHeld, privacy: .public) \

@@ -32,14 +32,39 @@ struct AecFeedSchedulerTests {
         #expect(scheduler.timeoutReleases == 0)
     }
 
-    @Test("render 起動前はタイムアウトしても解放しない(参照なし給餌を防ぐ)")
-    func noTimeoutBeforeRenderStarts() {
-        var scheduler = AecFeedScheduler(holdTimeout: 0.2)
+    @Test("render 起動前は猶予内なら解放しない(参照なし給餌を防ぐ)")
+    func heldBeforeRenderWithinGrace() {
+        var scheduler = AecFeedScheduler(holdTimeout: 0.2, renderStartGrace: 3.0)
         scheduler.hold(frame(1, at: 0), arrivedAt: 0)
-        // render は一度も来ていない → いくら待っても解放されない。
-        #expect(scheduler.release(now: 100).isEmpty)
+        // render 未起動 + 猶予内(< 3.0 秒)→ 保留のまま(タイムアウトも効かない)。
+        #expect(scheduler.release(now: 2.9).isEmpty)
         #expect(scheduler.heldCount == 1)
         #expect(scheduler.timeoutReleases == 0)
+        #expect(scheduler.renderStalledReleases == 0)
+    }
+
+    @Test("render が猶予を過ぎても来なければ安全弁で素通し解放される(#70 / #64)")
+    func renderStalledSafetyValveReleases() {
+        var scheduler = AecFeedScheduler(holdTimeout: 0.2, renderStartGrace: 3.0)
+        scheduler.hold(frame(1, at: 0), arrivedAt: 0)
+        // render 未起動のまま猶予超過 → 参照なしで解放し、専用カウンタで記録する。
+        let released = scheduler.release(now: 3.0)
+        #expect(released.count == 1)
+        #expect(scheduler.heldCount == 0)
+        #expect(scheduler.renderStalledReleases == 1)
+        // タイムアウト(render 稼働後)とは別カウンタ(取り違え防止)。
+        #expect(scheduler.timeoutReleases == 0)
+    }
+
+    @Test("flush(now=無限大)は render 未起動でも残余をすべて解放する(セッション末の欠損防止)")
+    func flushReleasesEverythingWithoutRender() {
+        var scheduler = AecFeedScheduler(renderStartGrace: 3.0)
+        scheduler.hold(frame(1, at: 0), arrivedAt: 0)
+        scheduler.hold(frame(2, at: duration), arrivedAt: 0)
+        let released = scheduler.release(now: .infinity)
+        #expect(released.count == 2)
+        #expect(scheduler.heldCount == 0)
+        #expect(scheduler.renderStalledReleases == 2)
     }
 
     @Test("render 稼働後に停止したらタイムアウトで解放されカウントされる")

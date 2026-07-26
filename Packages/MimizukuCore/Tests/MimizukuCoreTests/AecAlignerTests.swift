@@ -72,4 +72,35 @@ struct AecAlignerTests {
         let step = aligner.appendCapture(frame(9, at: Double(4) * duration))
         #expect(step.render.map(\.samples[0]) == [2, 3, 4])
     }
+
+    @Test("tap 先行起動: capture より先行しすぎる render は上限を超えた分だけ捨てる(#64)")
+    func excessLeadingRenderIsDropped() {
+        // maxRenderLead = 50ms(5 フレーム)。tap がマイクより先に起動し render[0..9] が
+        // 貯まった直後に最初の capture(最後の render と同時刻 = t=9 フレーム目)が来る状況。
+        var aligner = AecAligner(maxRenderLead: duration * 5)
+        for index in 0 ..< 10 {
+            aligner.appendRender(frame(Int16(index), at: Double(index) * duration))
+        }
+        let captureTime = Double(9) * duration
+        let step = aligner.appendCapture(frame(99, at: captureTime))
+        // 先行上限(captureTime - 50ms = t=4)より古い render[0..3] は捨てる。
+        #expect(aligner.droppedLeadRenderFrames == 4)
+        // APM へ渡る render はすべて capture から maxRenderLead 以内の先行に収まる。
+        for render in step.render {
+            #expect(captureTime - render.hostTime <= duration * 5 + 1e-9)
+        }
+        #expect(step.render.map(\.samples[0]) == [4, 5, 6, 7, 8, 9])
+    }
+
+    @Test("定常状態(render と capture が同時に流れる)では先行破棄は起きない")
+    func noLeadDropInSteadyState() {
+        var aligner = AecAligner(maxRenderLead: duration * 5)
+        // render[T] と capture[T] が交互に同時刻で流れる。
+        for index in 0 ..< 20 {
+            aligner.appendRender(frame(Int16(index), at: Double(index) * duration))
+            let step = aligner.appendCapture(frame(Int16(index), at: Double(index) * duration))
+            #expect(step.render.count == 1)
+        }
+        #expect(aligner.droppedLeadRenderFrames == 0)
+    }
 }

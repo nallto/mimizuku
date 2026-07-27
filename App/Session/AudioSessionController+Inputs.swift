@@ -27,14 +27,14 @@ extension AudioSessionController {
     private func makeBothInputs() async -> [StreamKind: any AudioSource] {
         let mic = MicrophoneSource()
         let system = SystemAudioTapSource()
-        let pump = AecPump()
+        let pump = makeAecPump()
         guard await pump.start() else {
             logger.error("aec unavailable, falling back to unprocessed capture")
-            applyAecStatus(.unavailable(reason: "エコーキャンセルの初期化に失敗しました。"))
+            applyAecStatus(.degraded(reason: "エコーキャンセルの初期化に失敗しました。"))
             return [.microphone: mic, .systemAudio: system]
         }
-        applyAecStatus(.active)
-        logger.notice("aec active (both mode)")
+        applyAecStatus(.starting)
+        logger.notice("aec starting (both mode)")
         // DeferredAudioSource で包み、ストリーム生成(= HAL 照会・engine 起動を含む)を
         // ルーター Task(off-main)まで遅延する(domain-pitfalls #10)。
         return [
@@ -56,17 +56,17 @@ extension AudioSessionController {
     /// `DeferredAudioSource` の中で直接起動し、両方モードと同一経路(本番 tap を直接消費)に
     /// 揃える。参照が使えない(TCC 未許可・沈黙)場合は AEC が打ち消さないだけで、マイク録音・
     /// 文字起こしは `AecFeedScheduler` の安全弁で実時間継続する(graceful degradation)。
-    /// 診断表示は楽観的に「有効」とし、参照の実状態は権限診断の「システム音声」行で確認する。
+    /// 診断表示は初回 render 受信後だけ「有効」とし、参照失敗・沈黙時は「低下」へ更新する。
     private func makeMicrophoneOnlyInputs() async -> [StreamKind: any AudioSource] {
         let mic = MicrophoneSource()
-        let pump = AecPump()
+        let pump = makeAecPump()
         guard await pump.start() else {
             logger.error("aec unavailable (mic-only), falling back to raw mic")
-            applyAecStatus(.unavailable(reason: "エコーキャンセルの初期化に失敗しました。"))
+            applyAecStatus(.degraded(reason: "エコーキャンセルの初期化に失敗しました。"))
             return [.microphone: mic]
         }
-        applyAecStatus(.active)
-        logger.notice("aec active (mic-only with hidden reference)")
+        applyAecStatus(.starting)
+        logger.notice("aec starting (mic-only with hidden reference)")
         return [
             .microphone: DeferredAudioSource(kind: .microphone) {
                 pump.processedCaptureWithReference(
@@ -75,5 +75,30 @@ extension AudioSessionController {
                 )
             }
         ]
+    }
+
+    /// AEC ポンプの実行時状態を MainActor の診断状態へ反映する。
+    private func makeAecPump() -> AecPump {
+        AecPump { [weak self] status in
+            self?.applyAecRuntimeStatus(status)
+        }
+    }
+
+    private func applyAecRuntimeStatus(_ status: AecRuntimeStatus) {
+        switch status {
+        case .active:
+            logger.notice("aec active (reference available)")
+            applyAecStatus(.active)
+        case .degraded(.referenceStartTimedOut):
+            logger.notice("aec degraded (reference start timed out)")
+            applyAecStatus(.degraded(
+                reason: "参照音声を取得できません。"
+            ))
+        case .degraded(.referenceUnavailable):
+            logger.notice("aec degraded (reference unavailable)")
+            applyAecStatus(.degraded(
+                reason: "参照音声が利用できなくなりました。"
+            ))
+        }
     }
 }

@@ -13,6 +13,8 @@ enum CaptureError: Error, LocalizedError {
     case aecProcessingFailed
     /// 捕捉ソースの配線が欠けている(到達しない想定の防御。無言 skip にしない)。
     case inputUnavailable(StreamKind)
+    /// 選択された捕捉ソースが、キャンセル以外で予期せず終了した。
+    case sourceEndedUnexpectedly(StreamKind)
 
     var errorDescription: String? {
         switch self {
@@ -24,6 +26,8 @@ enum CaptureError: Error, LocalizedError {
             "エコーキャンセル処理に失敗しました。"
         case let .inputUnavailable(stream):
             "捕捉ソースの配線に失敗しました(\(stream.rawValue))。"
+        case let .sourceEndedUnexpectedly(stream):
+            "音声入力が予期せず終了しました(\(stream.rawValue))。"
         }
     }
 }

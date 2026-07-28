@@ -6,5 +6,4 @@ allowed-tools: Bash(just check), Bash(just --list)
 
 # Claude Code用アダプター
 
-`.agents/skills/check/SKILL.md`が手順の正典である。実行前に同ファイルを完全に読み、
-その指示に従う。このファイルへ手順本文を複製しない。
+`.agents/skills/check/SKILL.md`が手順の正典である。実行前に同ファイルを完全に読み、その指示に従う。このファイルへ手順本文を複製しない。

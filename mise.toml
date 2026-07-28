@@ -12,3 +12,5 @@ swiftformat = "0.55"
 xcodegen = "2.45"  # Xcode プロジェクトを project.yml から生成(ADR-0004)
 meson = "1"        # WebRTC audio_processing のベンダリングビルド(ADR-0013)
 ninja = "1"        # 同上(meson のビルドバックエンド)
+node = "24"        # Prettierの実行環境
+prettier = "3.9.6" # Markdown formatter(G-0007)

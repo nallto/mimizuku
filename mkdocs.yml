@@ -54,4 +54,5 @@ nav:
       - G-0004 実行モード: adr/governance/G-0004-execution-modes.md
       - G-0005 Actions ピン留め: adr/governance/G-0005-actions-pinning.md
       - G-0006 Agent共通ワークフロー: adr/governance/G-0006-agent-workflow-source.md
+      - G-0007 Markdownソフトラップ: adr/governance/G-0007-markdown-soft-wrap.md
       - テンプレート: adr/template.md

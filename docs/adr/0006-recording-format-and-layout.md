@@ -21,10 +21,7 @@
 1. **録音中は CAF(LPCM 16bit・native サンプルレート、既定 48kHz)**で追記書き込みする。マイク=モノラル、システム音声=ステレオ。
 2. **停止時に AAC(.m4a)へ変換**し、変換結果を検証(デコード可否とフレーム長の照合)してから CAF を削除する。ビットレート起点: マイク 64kbps モノラル / システム 128kbps ステレオ(実聴で調整可)。
 3. **ストリーム毎 2 ファイルのみ**。ミックスファイルは生成しない(エクスポート/共有機能が必要になった時にその場で生成する)。
-4. **保存先は XDG Base Directory 準拠**(macOS 慣習の `~/Library/Application Support/` ではなく)。
-   ユーザーデータ(録音・文字起こし)は `$XDG_DATA_HOME`(未設定/相対パスなら `~/.local/share`)配下。
-   将来の設定ファイルは `$XDG_CONFIG_HOME`(既定 `~/.config`)、キャッシュ(再構築可能な検索
-   インデックス等)は `$XDG_CACHE_HOME`(既定 `~/.cache`)に置く。アプリ名は小文字 `mimizuku`。
+4. **保存先は XDG Base Directory 準拠**(macOS 慣習の `~/Library/Application Support/` ではなく)。ユーザーデータ(録音・文字起こし)は `$XDG_DATA_HOME`(未設定/相対パスなら `~/.local/share`)配下。将来の設定ファイルは `$XDG_CONFIG_HOME`(既定 `~/.config`)、キャッシュ(再構築可能な検索インデックス等)は `$XDG_CACHE_HOME`(既定 `~/.cache`)に置く。アプリ名は小文字 `mimizuku`。
    ```
    $XDG_DATA_HOME/mimizuku/sessions/<yyyyMMdd-HHmmss>/   (既定: ~/.local/share/mimizuku/sessions/)
      mic.caf    → 変換後 mic.m4a

@@ -1,7 +1,7 @@
 # Mimizuku タスクランナー。
 # 原則: `just check` = CI。人間もエージェントもこれ一本で検証する。
 # レシピ名(check / lint / fmt / fmt-check / test)は規約であり変更しない。
-# 中身は macOS/Swift 固有。
+# 中身は macOS/Swift中心で、文書の共通整形も含む。
 
 set shell := ["bash", "-euo", "pipefail", "-c"]
 
@@ -27,13 +27,15 @@ agent-config-check:
 lint:
     @swiftlint lint --strict
 
-# 全 Swift ソースをその場で整形。
+# Swiftとプロジェクト所有Markdownをその場で整形。
 fmt:
     @swiftformat .
+    @bash scripts/format-markdown.sh --write
 
 # 書き込まずに整形を検査(CI 用)。
 fmt-check:
     @swiftformat --lint .
+    @bash scripts/format-markdown.sh --check
 
 # 純ロジックのパッケージテスト(TCC / 音声ハードウェア非依存。macos-26 CI で実行)。
 # ハードウェア/権限依存のテストはローカル限定 ―― docs/domain-pitfalls.md を参照。
@@ -41,10 +43,9 @@ test:
     @for p in {{packages}}; do echo "== swift test: $p =="; swift test --package-path "$p"; done
 
 # 単一ファイル整形。Claude CodeのPostToolUseフック(.claude/hooks/post-edit.sh)が
-# 編集のたびに自動で呼び出す。swiftformat は .swift 以外を扱えないため、
-# フックが yaml/plist/md 等を渡してきたときのために拡張子で分岐する。
+# 編集のたびに自動で呼び出す。対象外の拡張子は何もしない。
 fmt-file file:
-    @case "{{file}}" in *.swift) swiftformat "{{file}}" ;; esac
+    @case "{{file}}" in *.swift) swiftformat "{{file}}" ;; *.md) mise exec -- prettier --write --ignore-path .prettierignore -- "{{file}}" ;; esac
 
 # Xcode プロジェクトを project.yml から生成(ADR-0004)。生成物 Mimizuku.xcodeproj /
 # App/Info.plist はコミットしない ―― 開く/ビルドの前にこれを実行する。

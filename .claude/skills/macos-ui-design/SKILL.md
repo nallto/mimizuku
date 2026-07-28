@@ -5,5 +5,4 @@ description: macOSネイティブSwiftUIのUI/UX設計指針。App/UI配下の�
 
 # Claude Code用アダプター
 
-`.agents/skills/macos-ui-design/SKILL.md`が設計指針の正典である。UI変更へ着手する前に
-同ファイルを完全に読み、その指示に従う。このファイルへ指針本文を複製しない。
+`.agents/skills/macos-ui-design/SKILL.md`が設計指針の正典である。UI変更へ着手する前に同ファイルを完全に読み、その指示に従う。このファイルへ指針本文を複製しない。

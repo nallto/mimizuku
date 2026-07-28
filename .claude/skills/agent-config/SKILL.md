@@ -5,5 +5,4 @@ description: Agent用skill、subagent、command、hook、権限、接続設定�
 
 # Claude Code用アダプター
 
-`.agents/skills/agent-config/SKILL.md`が手順の正典である。Agent関連設定へ触れる前に
-同ファイルを完全に読み、その指示に従う。このファイルへ手順本文を複製しない。
+`.agents/skills/agent-config/SKILL.md`が手順の正典である。Agent関連設定へ触れる前に同ファイルを完全に読み、その指示に従う。このファイルへ手順本文を複製しない。

@@ -29,10 +29,11 @@
 | [G-0001](./governance/G-0001-merge-strategy.md) | マージは squash 統一、コミット規約は PR タイトルで強制 | Accepted |
 | [G-0002](./governance/G-0002-release-strategy.md) | main のみ + release-please、release ブランチ常設なし | Accepted |
 | [G-0003](./governance/G-0003-incomplete-code-integration.md) | 未完成コードは keystone 優先、flag は削除期限つき | Accepted |
-| [G-0004](./governance/G-0004-execution-modes.md) | 実行モードは承認駆動が既定、ループは条件+ガードレールつき | Accepted |
+| [G-0004](./governance/G-0004-execution-modes.md) | 実行モードは承認駆動が既定、ループは条件+ガードレールつき | Superseded by G-0008 |
 | [G-0005](./governance/G-0005-actions-pinning.md) | GitHub Actions は full-length commit SHA へピン留め | Accepted |
 | [G-0006](./governance/G-0006-agent-workflow-source.md) | Agent共通ワークフローは`.agents/skills`を正典とする | Accepted |
 | [G-0007](./governance/G-0007-markdown-soft-wrap.md) | Markdownはソフトラップを前提に整形する | Accepted |
+| [G-0008](./governance/G-0008-unified-agent-workflow.md) | Agent作業を単一ワークフローと利用者指定の停止条件に分離する | Accepted |
 
 ## 書き方
 

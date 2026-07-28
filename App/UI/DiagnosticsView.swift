@@ -105,7 +105,7 @@ struct DiagnosticsView: View {
 
     // スピーカー再生音がマイクへ回り込み「自分」として二重に文字起こしされる問題への
     // 対策(WebRTC AEC3、ADR-0013)。マイク単体モードでも参照用の隠しシステム音声 tap で
-    // AEC を効かせる(#64)。状態は直近のセッション開始時に確定する。
+    // AEC を効かせる(#64)。状態は参照音声の実受信に応じて実行中に更新される(#74)。
     @ViewBuilder
     private var aecRow: some View {
         switch controller.aecStatus {
@@ -115,19 +115,23 @@ struct DiagnosticsView: View {
                 tint: .secondary,
                 text: "セッション開始時に判定します。スピーカー再生時の回り込み対策には、システム音声の許可が有効です。"
             )
+        case .starting:
+            statusRow(
+                icon: "clock",
+                tint: .secondary,
+                text: "参照音声の開始を待っています。"
+            )
         case .active:
-            // 参照音声が実際に取得できているかは実行時に確定するため断定しない
-            // (システム音声行と同じ流儀。TCC 拒否で参照が無音でも AEC 自体は起動する)。
             statusRow(
                 icon: "checkmark.circle.fill",
                 tint: .green,
-                text: "有効です。スピーカー再生の回り込みを抑制します(効果が薄い場合はシステム音声の許可を確認してください)。"
+                text: "有効です。スピーカー再生の回り込みを抑制します。"
             )
-        case let .unavailable(reason):
+        case let .degraded(reason):
             statusRow(
                 icon: "exclamationmark.triangle.fill",
                 tint: .orange,
-                text: "無効(録音・文字起こしは継続します): \(reason)"
+                text: "AECなしで録音・文字起こしを継続しています: \(reason)"
             ) {
                 Button("システム設定を開く") { diagnostics.openSettings(.audioCapture) }
             }

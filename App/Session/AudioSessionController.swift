@@ -33,10 +33,12 @@ final class AudioSessionController {
     enum AecStatus: Equatable {
         /// 未実行、またはこのモードでは AEC を使わない(システム音声のみ ―― near-end 無し)。
         case notApplicable
-        /// AEC を適用中(両方モード、またはマイク単体 + 隠し参照 tap が利用可能)。
+        /// APM は初期化済みで、参照音声の初回フレームを待っている。
+        case starting
+        /// 有効な参照音声を取得し、AEC を適用中。
         case active
-        /// AEC を使えず素の音声で動作中(マイク単体で参照 tap 不可、または初期化失敗)。
-        case unavailable(reason: String)
+        /// AEC を使えずマイク原音で動作中(参照 tap 不可、沈黙、または初期化失敗)。
+        case degraded(reason: String)
     }
 
     /// 追記されていく確定行 + 現在の volatile 行。

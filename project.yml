@@ -79,6 +79,7 @@ targets:
       - path: App/Audio
         excludes:
           - AecPump.swift
+          - AecPump+Streams.swift
     settings:
       base:
         PRODUCT_NAME: aecprobe

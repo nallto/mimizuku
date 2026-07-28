@@ -143,20 +143,16 @@ CIで確認できるのはファイル構造、YAML、参照、hook判定まで�
 - gitleaks は個人リポジトリでは追加設定不要。Organization 配下では `GITLEAKS_LICENSE`シークレット(無償申請可)の設定が必要。
 - 任意の一度きりのハードニング: `bash scripts/setup-github.sh`(認証済み gh CLI が必要)でsquash のみ許可と main ルールセットを設定する。
 
-## 実行モード
-
-既定は承認駆動(計画 → 承認 → 実行 → 検証)。ループ実行の条件とガードレールは[G-0004](./adr/governance/G-0004-execution-modes.md)。本プロジェクトの核はハードウェア/権限依存のため承認駆動のみで、無人ループやサンドボックス検証には委任できない。
-
 ## 変更を main へ統合する
 
 人間・AIエージェント・使用ツールにかかわらず、この節をコミットから統合後の後始末までの具体手順の正典とする。規約と理由は`AGENTS.md`および [G-0001](./adr/governance/G-0001-merge-strategy.md)、PR本文の入力形式はリポジトリの `.github/pull_request_template.md`を参照する。ツール固有のスキルやコマンドには、この手順を複製しない。
 
 ### 1. コミット前
 
-1. 対応Issue、assignee、Issue番号を含む作業ブランチ、実行モードを確認する。
+1. 対応Issue、assignee、Issue番号を含む作業ブランチを確認する。
 2. `git status --short --branch`で対象外の変更が混在していないことを確認する。
 3. `just check`をgreenにする。非自明な変更はverifierの第三者検証も通し、ハードウェア・TCC依存の変更は実機確認結果を記録する。
-4. Approval-drivenでは未コミットのdiffを報告し、利用者の変更確認を受けてからステージ・コミットする。`--no-verify`は使わない。
+4. 未コミットのdiffと検証結果を報告し、利用者の変更確認を受けてからステージ・コミットする。`--no-verify`は使わない。
 
 ### 2. pushとPR作成
 
@@ -170,7 +166,7 @@ CIで確認できるのはファイル構造、YAML、参照、hook判定まで�
 
 1. requiredかどうかにかかわらず、PRに紐づく**全check**を確認する。現在の名称を手順へ固定せず、`gh pr checks <number> --watch`に現れるcheckを正とする。pending、failure、cancelled、timed out、action requiredを残さない。neutralやskippedは、意図した条件分岐であることを確認する。
 2. redやcancelledを無視しない。原因を修正し、ローカル検証からやり直す。
-3. checksがすべてgreenでも自動でマージしない。PRのbase、head、head commit、タイトル、本文、Files changed、レビュー結果を取得して報告し、 **その状態を対象とするマージ承認を得る**。これは全実行モード共通の外向き・不可逆操作の停止点とする。
+3. checksがすべてgreenでも自動でマージしない。PRのbase、head、head commit、タイトル、本文、Files changed、レビュー結果を取得して報告し、 **その状態を対象とするマージ承認を得る**。これは外向き・不可逆操作の停止点とする。
 4. 承認後にbase、head、head commit、タイトル、本文のいずれかが変わった場合は承認を無効とし、CI・差分確認・承認からやり直す。
 
 ### 4. squash merge

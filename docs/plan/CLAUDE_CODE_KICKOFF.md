@@ -4,7 +4,7 @@
 
 ---
 
-何かを始める前に、`AGENTS.md`、`docs/domain-pitfalls.md`、`docs/adr/0001..0003`、`docs/adr/governance/G-0001..G-0004`、`docs/plan/IMPLEMENTATION_PLAN.md` を読むこと。
+何かを始める前に、`AGENTS.md`、`docs/domain-pitfalls.md`、`docs/adr/README.md`から作業に関係するAccepted ADR、`docs/plan/IMPLEMENTATION_PLAN.md` を読むこと。
 
 **作業は GitHub Issue 起点で行う**(AGENTS.md「作業の始め方」)。まず `docs/plan/IMPLEMENTATION_PLAN.md` の各スライス(Slice 1 以降)を **GitHub Issue として起票**し、以降のスライスはその Issue から始める(1 Issue = 1 PR、ブランチは `<type>/<issue番号>-<短い説明>`)。
 

@@ -21,26 +21,6 @@ import OSLog
 @MainActor
 @Observable
 final class AudioSessionController {
-    /// メニューバーアイコンが表す動作状況(#35: 待機 / 録音中 / エラーの 3 状態)。
-    enum MenuState {
-        case idle
-        case recording
-        case error
-    }
-
-    /// エコーキャンセル(AEC)の適用状態(権限診断画面の表示用、#64)。直近のセッション
-    /// 開始時に確定する。UI は「回り込み対策が効いているか」をこれで表明する。
-    enum AecStatus: Equatable {
-        /// 未実行、またはこのモードでは AEC を使わない(システム音声のみ ―― near-end 無し)。
-        case notApplicable
-        /// APM は初期化済みで、参照音声の初回フレームを待っている。
-        case starting
-        /// 有効な参照音声を取得し、AEC を適用中。
-        case active
-        /// AEC を使えずマイク原音で動作中(参照 tap 不可、沈黙、または初期化失敗)。
-        case degraded(reason: String)
-    }
-
     /// 追記されていく確定行 + 現在の volatile 行。
     private(set) var log = TranscriptLog()
     /// モデルアセットの導入状態(UI バナー用)。
@@ -57,21 +37,18 @@ final class AudioSessionController {
     /// `applyAecStatus(_:)` 経由でのみ更新する(UI からの書き換えを防ぐ)。
     private(set) var aecStatus: AecStatus = .notApplicable
 
-    var menuState: MenuState {
-        if lastError != nil { return .error }
-        if case .failed = assetStatus { return .error }
-        return isRunning ? .recording : .idle
-    }
-
     /// これ未満の録音は停止時に破棄する(誤操作・空セッション対策、ADR-0006 の 8)。
-    private static let minimumSessionDuration: TimeInterval = 2.0
+    static let minimumSessionDuration: TimeInterval = 2.0
 
     private let locale = Locale(identifier: "ja-JP")
     private let engine = SpeechEngine()
-    private let layout = SessionLayout.defaultLayout()
+    let layout = SessionLayout.defaultLayout()
     /// 配線層 extension(別ファイル)からも使うため internal(この型の実装内に限る)。
     let logger = Logger(subsystem: "dev.nallto.Mimizuku", category: "session")
     private var sessionTask: Task<Void, Never>?
+    /// start/stopをまたいで遅延到着する旧セッションの通知・後始末を識別する。
+    /// 世代が一致しない処理は録音ファイルのクローズ以外のUI状態を変更しない。
+    private var sessionGeneration: UInt64 = 0
     /// 進行中のアセット準備。並行呼び出し(起動時プリフェッチと開始時)を 1 本に束ねる。
     private var prepareTask: Task<Void, Never>?
 
@@ -112,19 +89,21 @@ final class AudioSessionController {
         }
     }
 
-    func toggle() {
-        if isRunning { stop() } else { start() }
-    }
-
     /// 捕捉・録音・文字起こしを開始する。ログは新規セッションとしてリセットする。
     func start() {
         guard !isRunning else { return }
+        let predecessor = sessionTask
+        sessionGeneration &+= 1
+        let generation = sessionGeneration
         isRunning = true
         lastError = nil
         log = TranscriptLog()
         sessionTask = Task { [weak self] in
             guard let self else { return }
-            await runSession()
+            // stop直後の再開でも旧engine/tapの解放完了を待ち、音声デバイスを重複起動しない。
+            await predecessor?.value
+            guard isCurrentSession(generation), !Task.isCancelled else { return }
+            await runSession(generation: generation)
         }
     }
 
@@ -132,219 +111,229 @@ final class AudioSessionController {
     /// マイク engine と tap が解放される。録音ファイルの close と AAC 変換は
     /// `runSession` の後始末が行う。
     func stop() {
+        sessionGeneration &+= 1
         sessionTask?.cancel()
-        sessionTask = nil
         isRunning = false
     }
 
     /// 1 ストリーム分の実行単位(捕捉ソースはストリーム種別から生成する)。
-    private struct StreamSession {
+    struct StreamSession {
         let stream: StreamKind
         let engine: SpeechEngine
         let recorder: AudioFileWriter
     }
 
-    private func runSession() async {
-        // アセット準備を待つ(進行中の起動時プリフェッチがあればそれに合流する)。
+    private struct PreparedSession {
+        let streams: [StreamKind]
+        let sessions: [StreamSession]
+        let targetFormat: AVAudioFormat
+        let directory: URL
+    }
+
+    private func runSession(generation: UInt64) async {
+        defer {
+            if isCurrentSession(generation) {
+                isRunning = false
+                sessionTask = nil
+            }
+        }
+        guard let prepared = await prepareSession(generation: generation) else { return }
+        let discardFailedStart = await runCaptureSession(
+            prepared.sessions,
+            streams: prepared.streams,
+            targetFormat: prepared.targetFormat,
+            generation: generation
+        )
+        if discardFailedStart {
+            await discardRecordings(prepared.sessions.map(\.recorder), in: prepared.directory)
+            // 5秒の開始待ち中にsystem側で生成されたfinal/volatileも含め、
+            // 正式セッションとして成立しなかったログを全て破棄する。
+            if isCurrentSession(generation) {
+                log = TranscriptLog()
+            }
+        } else {
+            await finalizeRecordings(
+                prepared.sessions.map(\.recorder),
+                in: prepared.directory,
+                generation: generation
+            )
+        }
+    }
+
+    private func prepareSession(generation: UInt64) async -> PreparedSession? {
+        // 進行中の起動時プリフェッチがあればそれに合流する。
         await prepareAssets()
-        guard case .ready = assetStatus else {
-            isRunning = false
-            return
-        }
+        guard isCurrentSession(generation), !Task.isCancelled else { return nil }
+        guard case .ready = assetStatus else { return nil }
         guard let targetFormat = await engine.bestInputFormat() else {
-            fail("文字起こしに対応する音声フォーマットが取得できませんでした。")
-            return
+            fail("文字起こしに対応する音声フォーマットが取得できませんでした。", for: generation)
+            return nil
         }
+        guard isCurrentSession(generation), !Task.isCancelled else { return nil }
 
         let streams = selection.streams
         // T5 修正: マイク権限は開始前に確認する。拒否のまま捕捉すると無音ファイルが
         // できるだけでエラーにならないため、明示エラーに変える。
         if streams.contains(.microphone) {
-            guard await ensureMicrophonePermission() else { return }
+            guard await ensureMicrophonePermission(for: generation) else { return nil }
         }
+        guard isCurrentSession(generation), !Task.isCancelled else { return nil }
         // ストリームごとのエンジン。prepare は AssetInventory 操作を並行させないため
         // 直列に呼ぶ(モデル導入済みのため 2 回目以降は即時完了する)。
-        guard let engines = await makeEngines(for: streams) else { return }
+        guard let engines = await makeEngines(for: streams, generation: generation) else {
+            return nil
+        }
+        guard isCurrentSession(generation), !Task.isCancelled else { return nil }
 
         // セッションディレクトリとストリーム毎の録音ファイル(mic.caf / system.caf、
         // ADR-0006)。ファイル自体は最初のバッファで遅延オープンされる(捕捉前の
         // ハードウェア照会をしない)。
-        let sessionDirectory: URL
+        let directory: URL
         do {
-            sessionDirectory = try layout.createSessionDirectory(startedAt: Date())
+            directory = try layout.createSessionDirectory(startedAt: Date())
         } catch {
-            fail("セッションディレクトリを作成できませんでした: \(error.localizedDescription)")
-            return
+            fail(
+                "セッションディレクトリを作成できませんでした: \(error.localizedDescription)",
+                for: generation
+            )
+            return nil
         }
-        let sessions: [StreamSession] = streams.compactMap { stream in
+        return makePreparedSession(
+            streams: streams,
+            engines: engines,
+            targetFormat: targetFormat,
+            directory: directory
+        )
+    }
+
+    private func makePreparedSession(
+        streams: [StreamKind],
+        engines: [StreamKind: SpeechEngine],
+        targetFormat: AVAudioFormat,
+        directory: URL
+    ) -> PreparedSession {
+        let sessions = streams.compactMap { stream -> StreamSession? in
             guard let streamEngine = engines[stream] else { return nil }
-            let url = sessionDirectory.appending(
+            let recording = directory.appending(
                 component: SessionLayout.recordingFileName(for: stream)
             )
             return StreamSession(
                 stream: stream,
                 engine: streamEngine,
-                recorder: AudioFileWriter(url: url)
+                recorder: AudioFileWriter(url: recording)
             )
         }
+        return PreparedSession(
+            streams: streams,
+            sessions: sessions,
+            targetFormat: targetFormat,
+            directory: directory
+        )
+    }
 
-        // 捕捉ソースの配線。「両方」では AEC ポンプを挟む(失敗時は従来経路)。
-        let inputs = await makeInputs(for: streams)
-
+    /// 捕捉本体を実行し、正式なマイク音源を開始できずセッション全体を破棄すべき場合は
+    /// `true`を返す。
+    private func runCaptureSession(
+        _ sessions: [StreamSession],
+        streams: [StreamKind],
+        targetFormat: AVAudioFormat,
+        generation: UInt64
+    ) async -> Bool {
         do {
-            try await runStreams(sessions, inputs: inputs, targetFormat: targetFormat)
+            // マイクを含むモードはAECポンプを必須とし、初期化失敗時にrawへ戻さない。
+            let inputs = try await makeInputs(for: streams, generation: generation)
+            guard isCurrentSession(generation), !Task.isCancelled else { return false }
+            try await runStreams(
+                sessions,
+                inputs: inputs,
+                targetFormat: targetFormat,
+                generation: generation
+            )
+            return false
         } catch is CancellationError {
             // 通常停止(stop によるキャンセル)。無視。
+            return false
         } catch {
+            // watchdog期限と利用者停止が競合した場合は、通常停止を優先して
+            // lastErrorやfailed-start cleanupを発生させない。
+            if Task.isCancelled { return false }
             logger.error("session failed: \(error.localizedDescription, privacy: .public)")
-            fail(error.localizedDescription)
+            fail(error.localizedDescription, for: generation)
+            guard let captureError = error as? CaptureError else { return false }
+            if case .aecReferenceStartTimedOut = captureError { return true }
+            return false
         }
-        isRunning = false
-        await finalizeRecordings(sessions.map(\.recorder), in: sessionDirectory)
     }
 
     /// T5 修正(#37): マイク TCC の事前確認。未決定なら要求し、拒否なら明示エラー。
-    private func ensureMicrophonePermission() async -> Bool {
+    private func ensureMicrophonePermission(for generation: UInt64) async -> Bool {
         switch MicrophonePermission.status() {
         case .granted:
             return true
         case .undetermined:
-            if await MicrophonePermission.request() { return true }
-            fail("マイクへのアクセスが許可されませんでした。「権限診断」から設定を確認してください。")
+            let granted = await MicrophonePermission.request()
+            guard isCurrentSession(generation), !Task.isCancelled else { return false }
+            if granted { return true }
+            fail(
+                "マイクへのアクセスが許可されませんでした。「権限診断」から設定を確認してください。",
+                for: generation
+            )
             return false
         case .denied:
-            fail("マイクへのアクセスが拒否されています。「権限診断」からシステム設定で許可してください。")
+            fail(
+                "マイクへのアクセスが拒否されています。「権限診断」からシステム設定で許可してください。",
+                for: generation
+            )
             return false
         }
     }
 
     /// ストリームごとの `SpeechEngine` を用意する。失敗したら `fail` して `nil`。
-    private func makeEngines(for streams: [StreamKind]) async -> [StreamKind: SpeechEngine]? {
+    private func makeEngines(
+        for streams: [StreamKind],
+        generation: UInt64
+    ) async -> [StreamKind: SpeechEngine]? {
         var engines: [StreamKind: SpeechEngine] = [:]
         for stream in streams {
             let streamEngine = SpeechEngine()
             do {
                 try await streamEngine.prepare(locale: locale)
             } catch {
-                fail("文字起こしエンジンの準備に失敗しました: \(error.localizedDescription)")
+                fail(
+                    "文字起こしエンジンの準備に失敗しました: \(error.localizedDescription)",
+                    for: generation
+                )
                 return nil
             }
+            guard isCurrentSession(generation), !Task.isCancelled else { return nil }
             engines[stream] = streamEngine
         }
         return engines
     }
 
-    /// 各ストリームの `Source → AudioRouter → SpeechEngine` を TaskGroup で並行実行し、
-    /// セグメントをライブログへ合流させる。1 つでも失敗したら throw で全体を畳む
-    /// (グループのキャンセルで他ストリームの捕捉・録音も解放される)。
-    private func runStreams(
-        _ sessions: [StreamSession],
-        inputs: [StreamKind: any AudioSource],
-        targetFormat: AVAudioFormat
-    ) async throws {
-        let sessionStart = ContinuousClock.now
-        let logger = logger
-        try await withThrowingTaskGroup(of: Void.self) { group in
-            for session in sessions {
-                guard let source = inputs[session.stream] else {
-                    // 到達しない想定(inputs と sessions は同じ streams から作られる)だが、
-                    // 万一の欠損を無言 skip にしない(録音・文字起こしの黙殺を許さない)。
-                    throw CaptureError.inputUnavailable(session.stream)
-                }
-                let label = session.stream.rawValue
-                let streamEngine = session.engine
-                let routed = AudioRouter.route(
-                    source: source,
-                    transcriptionFormat: targetFormat,
-                    recorder: session.recorder
-                ) {
-                    // 捕捉開始オフセットの計測(S4 の時刻同期確認)。ストリーム間の
-                    // 差分が録音ファイル先頭のずれの目安になる。
-                    let ms = Int((sessionStart.duration(to: .now) / .milliseconds(1)).rounded())
-                    logger.notice(
-                        "first buffer (\(label, privacy: .public)): +\(ms, privacy: .public)ms"
-                    )
-                }
-                group.addTask { [weak self] in
-                    for try await segment in streamEngine.segments(from: routed) {
-                        await self?.apply(segment)
-                    }
-                }
-            }
-            try await group.waitForAll()
-        }
-    }
-
-    /// セグメントをライブログへ適用する(TaskGroup の子タスクから MainActor へ合流)。
-    private func apply(_ segment: TranscriptSegment) {
-        log.apply(segment)
-    }
-
-    /// 録音を閉じ、短すぎる/空のセッションは破棄する(全ストリームの**最長**で判定、
-    /// ADR-0006 の 8)。保持する場合は書き込まれたファイルだけを AAC 変換する。
-    private func finalizeRecordings(
-        _ recorders: [AudioFileWriter],
-        in sessionDirectory: URL
-    ) async {
-        var durations: [TimeInterval] = []
-        for recorder in recorders {
-            _ = await recorder.finish()
-            await durations.append(recorder.duration)
-        }
-        if SessionRetention.shouldDiscard(
-            durations: durations,
-            minimumDuration: Self.minimumSessionDuration
-        ) {
-            let longest = durations.max() ?? 0
-            logger.notice("discarding short session (\(longest, format: .fixed(precision: 2))s)")
-            try? FileManager.default.removeItem(at: sessionDirectory)
-        } else {
-            for (recorder, duration) in zip(recorders, durations) where duration > 0 {
-                convertInBackground(caf: recorder.url)
-            }
-        }
-    }
-
-    /// 停止後の AAC 変換(ADR-0006 の 2)。失敗しても CAF は温存され、次回起動の
-    /// 回復スキャンで再変換される。
-    private func convertInBackground(caf: URL) {
-        Task { [weak self] in
-            do {
-                _ = try await Self.convertOffMain(caf: caf)
-            } catch {
-                let reason = error.localizedDescription
-                self?.logger.error("aac conversion failed: \(reason, privacy: .public)")
-                self?.lastError = "録音の圧縮に失敗しました(元データは保持): \(reason)"
-            }
-        }
-    }
-
-    private func recoverPendingRecordings() async {
-        let pending = layout.pendingRecordings()
-        guard !pending.isEmpty else { return }
-        logger.notice("recovering \(pending.count) unconverted recording(s)")
-        for caf in pending {
-            do {
-                _ = try await Self.convertOffMain(caf: caf)
-            } catch {
-                logger.error("recovery failed: \(error.localizedDescription, privacy: .public)")
-                lastError = "前回の録音の変換に失敗しました(元データは保持)。"
-            }
-        }
-    }
-
-    /// AAC 変換を MainActor の外で実行する(数分の録音でも UI を塞がない)。
-    private nonisolated static func convertOffMain(caf: URL) async throws -> URL {
-        try AacConverter().convert(caf: caf)
-    }
-
-    private func fail(_ message: String) {
+    private func fail(_ message: String, for generation: UInt64) {
+        guard isCurrentSession(generation) else { return }
         lastError = message
         isRunning = false
     }
 
+    func applyRecordingError(_ message: String, generation: UInt64? = nil) {
+        if let generation, !isCurrentSession(generation) { return }
+        lastError = message
+    }
+
+    func isCurrentSession(_ generation: UInt64) -> Bool {
+        generation == sessionGeneration
+    }
+
+    func applyTranscript(_ segment: TranscriptSegment, generation: UInt64) {
+        guard isCurrentSession(generation) else { return }
+        log.apply(segment)
+    }
+
     /// AEC 状態を更新する(配線層 `AudioSessionController+Inputs` からの唯一の書き込み口)。
-    func applyAecStatus(_ status: AecStatus) {
+    func applyAecStatus(_ status: AecStatus, for generation: UInt64) {
+        guard isCurrentSession(generation) else { return }
         aecStatus = status
     }
 }

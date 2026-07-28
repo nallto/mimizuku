@@ -2,10 +2,7 @@
 
 このリポジトリで作業するすべての人間と AI エージェントが従う規約の正典(Single Source of Truth)。AGENTS.md を直接読まないツール(Claude Code)は`CLAUDE.md` の import 経由で本ファイルを読み込む。
 
-> 原則: **機械が強制できることはここに書かない。**
-> 強制は linter / hooks / CI / ブランチ保護が担う(`scripts/agent-hooks/`・
-> 各Agentの接続設定・`.github/workflows/`・リポジトリ設定が正)。
-> ここには非自明なルールと理由だけを書く。
+> 原則: **機械が強制できることはここに書かない。** 強制は linter / hooks / CI / ブランチ保護が担う(`scripts/agent-hooks/`・各Agentの接続設定・`.github/workflows/`・リポジトリ設定が正)。ここには非自明なルールと理由だけを書く。
 
 ## プロジェクト概要
 
@@ -21,6 +18,12 @@ Mimizuku は、録音・オンデバイス文字起こし・ノートを統合�
 - **PR タイトル**は Conventional Commits に従う。type は英語トークン(`feat` `fix` 等)、要約(summary)は日本語でよい。コード識別子は英語。
 - 秘密情報・鍵・トークンはコミットしない。
 
+## Markdownの改行
+
+- 通常の文章は**1段落を1物理行**で書き、表示幅による折り返しはエディタのソフトラップに任せる。読みやすさのためだけに段落途中へ改行を入れない。
+- 段落、リスト、表、コードブロック、意図的なMarkdown hard breakなど、意味を持つ改行は保持する。判断理由と対象範囲はG-0007。
+- プロジェクト所有のMarkdownはPrettierで整形する。手作業で改行を直し続けず、`just fmt`で修正し`just check`で検査する。
+
 ## ハード制約(絶対に破らない。変更提案の前に必ず ADR を起票する)
 
 1. **本リポジトリのどこにも private API を使わない。** App Store 適格性と OS 更新時の安定性を守るため、非公開 API に依存しない。
@@ -35,8 +38,7 @@ Mimizuku は、録音・オンデバイス文字起こし・ノートを統合�
 
 - 完了報告の前に必ず `just check` を実行し、green を確認する。`just check` は CI と同一内容。これが green でない作業は「完了」ではない。タスク一覧は `just --list`。
 - `just check` は純ロジックのパッケージテストのみを実行する。**TCC 権限や実音声ハードウェア(マイク・システム音声 tap)を要するものは CI で実行できず、人間がローカルで検証する**(G-0004 と domain-pitfalls #8)。
-- 非自明な変更はverifierサブエージェントの第三者検証も通す。自分の仕事を
-  自分だけで採点しない(手順: `.agents/skills/verify/SKILL.md`)。
+- 非自明な変更はverifierサブエージェントの第三者検証も通す。自分の仕事を自分だけで採点しない(手順: `.agents/skills/verify/SKILL.md`)。
 
 ## 作業の始め方(Issue 起点)
 
@@ -50,10 +52,7 @@ Mimizuku は、録音・オンデバイス文字起こし・ノートを統合�
 ## ブランチとマージ(理由と例外条件: G-0001)
 
 - trunk-based development。変更は 短命ブランチ → PR → CI green → **squash merge** のみ。merge commit / rebase merge はリポジトリ設定で無効化する。
-- コミットからpush、PR、CI監視、マージ前承認、squash merge、main同期、
-  ブランチ削除、stacked branchの載せ直しまでの**環境非依存の具体手順**は
-  [`docs/development.md`の「変更をmainへ統合する」](./docs/development.md#変更を-main-へ統合する)
-  を正典とする。Claude Code固有スキルや会話履歴だけを手順の置き場所にしない。
+- コミットからpush、PR、CI監視、マージ前承認、squash merge、main同期、ブランチ削除、stacked branchの載せ直しまでの**環境非依存の具体手順**は [`docs/development.md`の「変更をmainへ統合する」](./docs/development.md#変更を-main-へ統合する) を正典とする。Claude Code固有スキルや会話履歴だけを手順の置き場所にしない。
 - PR タイトルは Conventional Commits 1.0.0 準拠(CI が検証)。ブランチ上の個々のコミット形式は自由。
 - ブランチ名: `<type>/<issue番号>-<短い説明>`(例: `feat/12-mic-source`)。
 - 1 Issue = 1 PR。PR は小さく保ち、マージ後のブランチは削除する。
@@ -77,7 +76,7 @@ Mimizuku は、録音・オンデバイス文字起こし・ノートを統合�
 AI のメモリ(auto memory / `CLAUDE.local.md`)は個人ローカルであり、チームに共有されない。「他の人(やその AI)も知るべき」と思った瞬間に Git 管理ファイルへ書く。
 
 | 知識の種類 | 置き場所 |
-|---|---|
+| --- | --- |
 | 個人の揮発メモ・個人設定 | `CLAUDE.local.md` / auto memory(コミットしない) |
 | チームの人間・AI 向け規約 | 本ファイル |
 | 設計判断の理由 | `docs/adr/`(製品)/ `docs/adr/governance/`(プロセス) |
@@ -87,47 +86,28 @@ AI のメモリ(auto memory / `CLAUDE.local.md`)は個人ローカルであり�
 | 恒久的な仕様(開発・設計向け) | `docs/` |
 
 - 不変条件: **docs・コード・テストは同じ PR で一致させる**(乖離を後追いにしない)。
-- 設計判断は実装の前(または同じ PR)で ADR に残す。手順:
-  `.agents/skills/adr/SKILL.md`。
+- 設計判断は実装の前(または同じ PR)で ADR に残す。手順: `.agents/skills/adr/SKILL.md`。
 
 ## Agent共通ワークフロー
 
-- 正式に接続しているAgent、skill探索方式、hook接続先は
-  `.agents/integrations.json`を機械可読な一覧とする。未登録のAgentは
-  `AGENTS.md`を入口に`.agents/skills/`を直接読むfallbackとして扱う。
-- Agent向けskill本文の正典は`.agents/skills/`に置く。ここを直接探索しない
-  Agentも、作業開始時に本ファイルから対応する`SKILL.md`を読んで適用する。
-- `.claude/skills/`はClaude Codeの探索用アダプターであり、共通skillを参照する
-  だけにする。手順本文を複製しない。skill自体が`/adr`、`/check`、`/verify`等の
-  起動口になるため、同名の`.claude/commands/`は持たない。
-- `.claude/agents/`など、各製品固有のサブエージェント定義には役割と共通基準への
-  参照だけを置く。検証基準の正典は`.agents/skills/verify/references/`に置く。
-- Agent間で共有できる決定的なhook実装は`scripts/agent-hooks/`に置く。
-  `.claude/settings.json`や`.codex/hooks.json`はイベントを共通実装へ接続する
-  アダプターとする。イベント形式が異なるhookと権限設定は製品別に管理する。
-- `.claude/settings.local.json`などのローカル設定は共通規約・手順の置き場所に
-  せず、コミットしない。
-- `.agents/`、`.claude/`、`.codex/`、`scripts/agent-hooks/`、またはAgentの
-  動作を変える規約・設定へ触れる作業は、着手前に
-  `.agents/skills/agent-config/SKILL.md`を読む。registryにある全Agentとfallbackの
-  影響表を計画へ含め、影響なしの場合も理由を書く。
-- 新しいAgent製品を正式対応するときは`.agents/integrations.json`へ登録し、
-  既存の全共通skill、hook、検証手順への到達方法を同じ変更で追加する。
+- 正式に接続しているAgent、skill探索方式、hook接続先は `.agents/integrations.json`を機械可読な一覧とする。未登録のAgentは `AGENTS.md`を入口に`.agents/skills/`を直接読むfallbackとして扱う。
+- Agent向けskill本文の正典は`.agents/skills/`に置く。ここを直接探索しないAgentも、作業開始時に本ファイルから対応する`SKILL.md`を読んで適用する。
+- `.claude/skills/`はClaude Codeの探索用アダプターであり、共通skillを参照するだけにする。手順本文を複製しない。skill自体が`/adr`、`/check`、`/verify`等の起動口になるため、同名の`.claude/commands/`は持たない。
+- `.claude/agents/`など、各製品固有のサブエージェント定義には役割と共通基準への参照だけを置く。検証基準の正典は`.agents/skills/verify/references/`に置く。
+- Agent間で共有できる決定的なhook実装は`scripts/agent-hooks/`に置く。 `.claude/settings.json`や`.codex/hooks.json`はイベントを共通実装へ接続するアダプターとする。イベント形式が異なるhookと権限設定は製品別に管理する。
+- `.claude/settings.local.json`などのローカル設定は共通規約・手順の置き場所にせず、コミットしない。
+- `.agents/`、`.claude/`、`.codex/`、`scripts/agent-hooks/`、またはAgentの動作を変える規約・設定へ触れる作業は、着手前に `.agents/skills/agent-config/SKILL.md`を読む。registryにある全Agentとfallbackの影響表を計画へ含め、影響なしの場合も理由を書く。
+- 新しいAgent製品を正式対応するときは`.agents/integrations.json`へ登録し、既存の全共通skill、hook、検証手順への到達方法を同じ変更で追加する。
 
 ## コミットと PR
 
 - squash 後に main に残るのは「PR タイトル + squash 本文」。squash 本文は **PR 本文全文**(#14 スタイル)なので、PR 説明(概要 / 変更内容 / 関連 Issue / Squash body / チェックリスト)がそのまま履歴に残る。レビューコメント・ブランチ上のコミット列は残らない前提で扱う。
-- コミットしない: 署名証明書・プロビジョニング成果物・`.env`・録音音声・文字起こし。
-  ツールを問わない統合手順は上記`docs/development.md`を直接読む。
-  commit-and-prスキルは同じ正典へ入る入口とし、別手順を定義しない。
+- コミットしない: 署名証明書・プロビジョニング成果物・`.env`・録音音声・文字起こし。ツールを問わない統合手順は上記`docs/development.md`を直接読む。commit-and-prスキルは同じ正典へ入る入口とし、別手順を定義しない。
 
 ## AI エージェントの作業規律
 
-- 非自明な変更は、着手前に計画(対象・手順・検証方法・トレードオフ)を提示し、
-  承認を得てから実行する。手順: `.agents/skills/plan-execute-verify/SKILL.md`。
-- UI(`App/UI/`配下や新規ビュー)に触れる作業は、着手前に
-  `.agents/skills/macos-ui-design/SKILL.md`を読む(HIGと流体インターフェース
-  原則の遵守)。
+- 非自明な変更は、着手前に計画(対象・手順・検証方法・トレードオフ)を提示し、承認を得てから実行する。手順: `.agents/skills/plan-execute-verify/SKILL.md`。
+- UI(`App/UI/`配下や新規ビュー)に触れる作業は、着手前に `.agents/skills/macos-ui-design/SKILL.md`を読む(HIGと流体インターフェース原則の遵守)。
 - 実行モードは 3 つ(下記「実行モード」表)。既定は Approval-driven(承認駆動)。ループ/自動実行の根拠とガードレールは G-0004 ―― 特に**音声・TCC・ハードウェア依存の作業は Approval-driven のみ**で、無人ループに委任しない。
 - 規約・設定・docs に改善余地を見つけたら、勝手に変えず提案する。
 - 秘密情報(`.env`・鍵・トークン)は読まない・書かない・コミットしない(permissions / hooks / CI gitleaks でも強制されるが、規律としても守る)。
@@ -137,7 +117,7 @@ AI のメモリ(auto memory / `CLAUDE.local.md`)は個人ローカルであり�
 **Issue 着手時に、どのモードで進めるかを最初に確認・合意する。** 全モード共通で、検証 2 段(`just check` + verifier)と「main は PR 経由・squash」(G-0001)は不変。
 
 | 項目 | 🔵 Approval-driven(承認駆動・既定) | 🟢 Goal-driven(ゴール駆動) | 🟡 Budget-driven(予算駆動・時間/回数) |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | 発動 | 既定 / 「承認駆動で」 | 明確な完了条件 +「ゴールまで自動で」 | 「30分 / 5 コミット 等で区切って自動で」 |
 | 停止条件 | 各非自明ステップで承認 | 完了条件(機械検証可能)に到達 | 指定の時間 or 回数の上限に到達 |
 | コミット | `just check` green 後、**コミット前に停止**して報告 + 変更確認依頼 → 承認後 | `just check` green 後、こまめに自動コミット | `just check` green 後、こまめに自動コミット |

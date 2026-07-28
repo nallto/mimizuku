@@ -12,11 +12,15 @@ default:
     @just --list
 
 # CI と同一の検証一式(完了報告の前提条件)。
-check: setup-check lint fmt-check test
+check: setup-check agent-config-check lint fmt-check test
 
 # プレースホルダ・未設定マーカーの残存を検査。
 setup-check:
     @bash scripts/setup-check.sh
+
+# Agent共通skill・環境別アダプター・危険コマンド防止hookを検証。
+agent-config-check:
+    @bash scripts/check-agent-config.sh
 
 # 全 Swift ソースを lint。
 lint:
@@ -35,7 +39,7 @@ fmt-check:
 test:
     @for p in {{packages}}; do echo "== swift test: $p =="; swift test --package-path "$p"; done
 
-# 単一ファイル整形。PostToolUse フック(.claude/hooks/post-edit.sh)が
+# 単一ファイル整形。Claude CodeのPostToolUseフック(.claude/hooks/post-edit.sh)が
 # 編集のたびに自動で呼び出す。swiftformat は .swift 以外を扱えないため、
 # フックが yaml/plist/md 等を渡してきたときのために拡張子で分岐する。
 fmt-file file:

@@ -195,7 +195,7 @@ S4 で確認したスピーカー回り込み(二重文字起こし)の解消。
 
 ### フェーズ 2 — メイン画面
 
-UI 作業は着手前に `.claude/skills/macos-ui-design/SKILL.md` を読む。
+UI作業は着手前に`.agents/skills/macos-ui-design/SKILL.md`を読む。
 
 #### S6 — 3 ペイン骨格
 

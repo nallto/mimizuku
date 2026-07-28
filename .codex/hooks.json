@@ -1,0 +1,17 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "^Bash$",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$(git rev-parse --show-toplevel)/scripts/agent-hooks/protect-command.sh\"",
+            "timeout": 10,
+            "statusMessage": "危険なコマンドを確認中"
+          }
+        ]
+      }
+    ]
+  }
+}

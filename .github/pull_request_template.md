@@ -22,7 +22,7 @@ Closes #
 
 - [ ] 対応する Issue に紐付けた(上の「関連 Issue」に記入。setup 等の例外は概要に理由)
 - [ ] `just check` が手元で green
-- [ ] PR タイトルが Conventional Commits 準拠(英語・72 文字以内)
+- [ ] PR タイトルが Conventional Commits 準拠(type は英語、summary は日本語可、72 文字以内)
 - [ ] Squash body(what / why)を記載した
 - [ ] テストを追加・更新した(不要ならその理由を概要に記載)
 - [ ] README / docs に影響する変更は同じ PR で更新した(乖離を残さない)

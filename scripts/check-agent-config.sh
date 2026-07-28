@@ -10,47 +10,124 @@ fail() {
   exit 1
 }
 
-check_skill_frontmatter() {
-  local file=$1
-  local frontmatter
-
-  [[ $(sed -n '1p' "$file") == "---" ]] ||
-    fail "$file: YAML frontmatterの開始行がない"
-  frontmatter=$(sed -n '2,/^---$/p' "$file")
-  [[ $frontmatter == *$'\n---' ]] ||
-    fail "$file: YAML frontmatterの終了行がない"
-  grep -q '^name:[[:space:]]*[^[:space:]]' <<<"$frontmatter" ||
-    fail "$file: nameがない"
-  grep -q '^description:[[:space:]]*[^[:space:]]' <<<"$frontmatter" ||
-    fail "$file: descriptionがない"
-}
-
+skill_files=()
 while IFS= read -r -d '' skill_file; do
-  check_skill_frontmatter "$skill_file"
+  skill_files+=("$skill_file")
 done < <(find .agents/skills .claude/skills -name SKILL.md -print0)
 
-for adapter in .claude/skills/*/SKILL.md; do
-  skill_name=$(basename "$(dirname "$adapter")")
-  [[ -f ".agents/skills/$skill_name/SKILL.md" ]] ||
-    fail "$adapter: 対応する共通skillがない"
-  grep -Fq ".agents/skills/$skill_name/SKILL.md" "$adapter" ||
-    fail "$adapter: 対応する共通skillを参照していない"
+ruby_bin=${AGENT_CONFIG_RUBY_BIN:-/usr/bin/ruby}
+[[ -x $ruby_bin ]] ||
+  fail "YAML frontmatter検証に必要な${ruby_bin}がない"
+"$ruby_bin" scripts/check-skill-frontmatter.rb "${skill_files[@]}"
+
+registry=.agents/integrations.json
+jq -e '
+  . as $root |
+  $root.schemaVersion == 1 and
+  ($root.fallback.instructions | type == "string") and
+  ($root.fallback.skills | type == "string") and
+  ($root.agents | (type == "array" and length > 0)) and
+  (([$root.agents[].id] | length) == ([$root.agents[].id] | unique | length)) and
+  all(
+    $root.agents[];
+    (.id | type == "string" and length > 0) and
+    (.skills.path | type == "string" and length > 0) and
+    (.skills.mode == "native" or .skills.mode == "adapter" or .skills.mode == "instructions") and
+    ((.hooks.preToolUseConfig? == null) or
+      (.hooks.preToolUseConfig | type == "string" and length > 0)) and
+    ((.hooks.postToolUseConfig? == null) or
+      (.hooks.postToolUseConfig | type == "string" and length > 0))
+  )
+' "$registry" >/dev/null ||
+  fail "$registry: schemaまたはAgent登録が不正"
+
+fallback_instructions=$(jq -r .fallback.instructions "$registry")
+fallback_skills=$(jq -r .fallback.skills "$registry")
+[[ -f $fallback_instructions ]] ||
+  fail "$registry: fallback instructionsが存在しない"
+[[ -d $fallback_skills ]] ||
+  fail "$registry: fallback skillsが存在しない"
+grep -Fq "$fallback_skills" "$fallback_instructions" ||
+  fail "$fallback_instructions: fallback skillsを参照していない"
+grep -Fq "$fallback_skills/agent-config/SKILL.md" "$fallback_instructions" ||
+  fail "$fallback_instructions: Agent設定変更手順を参照していない"
+
+while IFS=$'\t' read -r agent_id discovery_mode discovery_path; do
+  case "$discovery_mode" in
+    native)
+      [[ $discovery_path == "$fallback_skills" ]] ||
+        fail "$agent_id: native skillの正典がfallbackと異なる"
+      ;;
+    adapter)
+      [[ -d $discovery_path ]] ||
+        fail "$agent_id: adapter directoryが存在しない"
+
+      for common_skill in "$fallback_skills"/*/SKILL.md; do
+        skill_name=$(basename "$(dirname "$common_skill")")
+        adapter="$discovery_path/$skill_name/SKILL.md"
+        [[ -f $adapter ]] ||
+          fail "$agent_id: ${skill_name}のadapterがない"
+        grep -Fq "$common_skill" "$adapter" ||
+          fail "$adapter: 共通skillを参照していない"
+        adapter_lines=$(wc -l <"$adapter" | tr -d ' ')
+        [[ $adapter_lines -le 24 ]] ||
+          fail "$adapter: 24行を超えているため手順本文の重複を確認する"
+      done
+
+      for adapter in "$discovery_path"/*/SKILL.md; do
+        skill_name=$(basename "$(dirname "$adapter")")
+        [[ -f "$fallback_skills/$skill_name/SKILL.md" ]] ||
+          fail "$adapter: 対応する共通skillがない"
+      done
+      ;;
+    instructions)
+      [[ -f $discovery_path ]] ||
+        fail "$agent_id: instructions fileが存在しない"
+      grep -Fq "$fallback_skills" "$discovery_path" ||
+        fail "$agent_id: instructionsが共通skillを参照していない"
+      ;;
+  esac
+done < <(
+  jq -r '.agents[] | [.id, .skills.mode, .skills.path] | @tsv' "$registry"
+)
+
+for common_skill in "$fallback_skills"/*/SKILL.md; do
+  skill_name=$(basename "$(dirname "$common_skill")")
+  [[ ! -f ".claude/commands/$skill_name.md" ]] ||
+    fail ".claude/commands/$skill_name.md: 共通skillと重複している"
 done
 
-for duplicate_command in adr check verify; do
-  [[ ! -f ".claude/commands/$duplicate_command.md" ]] ||
-    fail ".claude/commands/$duplicate_command.md: 共通skillと重複している"
-done
-
-grep -Fq ".agents/skills/verify/references/verifier.md" .claude/agents/verifier.md ||
+grep -Fq "$fallback_skills/verify/references/verifier.md" .claude/agents/verifier.md ||
   fail ".claude/agents/verifier.md: 共通検証基準を参照していない"
-grep -Fq "scripts/agent-hooks/protect-command.sh" .claude/settings.json ||
-  fail ".claude/settings.json: 共通PreToolUse hookを参照していない"
-grep -Fq "scripts/agent-hooks/protect-command.sh" .codex/hooks.json ||
-  fail ".codex/hooks.json: 共通PreToolUse hookを参照していない"
 
 jq empty .claude/settings.json
 jq empty .codex/hooks.json
+
+while IFS=$'\t' read -r agent_id hook_config; do
+  [[ -f $hook_config ]] ||
+    fail "$agent_id: PreToolUse設定が存在しない"
+  grep -Fq "scripts/agent-hooks/protect-command.sh" "$hook_config" ||
+    fail "$agent_id: PreToolUse設定が共通hookを参照していない"
+done < <(
+  jq -r '
+    .agents[]
+    | select(.hooks.preToolUseConfig? != null)
+    | [.id, .hooks.preToolUseConfig]
+    | @tsv
+  ' "$registry"
+)
+
+while IFS=$'\t' read -r agent_id hook_config; do
+  [[ -f $hook_config ]] ||
+    fail "$agent_id: PostToolUse設定が存在しない"
+done < <(
+  jq -r '
+    .agents[]
+    | select(.hooks.postToolUseConfig? != null)
+    | [.id, .hooks.postToolUseConfig]
+    | @tsv
+  ' "$registry"
+)
 
 run_hook_case() {
   local name=$1

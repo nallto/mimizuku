@@ -1,0 +1,30 @@
+{
+  "schemaVersion": 1,
+  "fallback": {
+    "instructions": "AGENTS.md",
+    "skills": ".agents/skills"
+  },
+  "agents": [
+    {
+      "id": "codex",
+      "skills": {
+        "mode": "native",
+        "path": ".agents/skills"
+      },
+      "hooks": {
+        "preToolUseConfig": ".codex/hooks.json"
+      }
+    },
+    {
+      "id": "claude-code",
+      "skills": {
+        "mode": "adapter",
+        "path": ".claude/skills"
+      },
+      "hooks": {
+        "preToolUseConfig": ".claude/settings.json",
+        "postToolUseConfig": ".claude/settings.json"
+      }
+    }
+  ]
+}

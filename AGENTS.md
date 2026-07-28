@@ -92,6 +92,9 @@ AI のメモリ(auto memory / `CLAUDE.local.md`)は個人ローカルであり�
 
 ## Agent共通ワークフロー
 
+- 正式に接続しているAgent、skill探索方式、hook接続先は
+  `.agents/integrations.json`を機械可読な一覧とする。未登録のAgentは
+  `AGENTS.md`を入口に`.agents/skills/`を直接読むfallbackとして扱う。
 - Agent向けskill本文の正典は`.agents/skills/`に置く。ここを直接探索しない
   Agentも、作業開始時に本ファイルから対応する`SKILL.md`を読んで適用する。
 - `.claude/skills/`はClaude Codeの探索用アダプターであり、共通skillを参照する
@@ -104,6 +107,12 @@ AI のメモリ(auto memory / `CLAUDE.local.md`)は個人ローカルであり�
   アダプターとする。イベント形式が異なるhookと権限設定は製品別に管理する。
 - `.claude/settings.local.json`などのローカル設定は共通規約・手順の置き場所に
   せず、コミットしない。
+- `.agents/`、`.claude/`、`.codex/`、`scripts/agent-hooks/`、またはAgentの
+  動作を変える規約・設定へ触れる作業は、着手前に
+  `.agents/skills/agent-config/SKILL.md`を読む。registryにある全Agentとfallbackの
+  影響表を計画へ含め、影響なしの場合も理由を書く。
+- 新しいAgent製品を正式対応するときは`.agents/integrations.json`へ登録し、
+  既存の全共通skill、hook、検証手順への到達方法を同じ変更で追加する。
 
 ## コミットと PR
 

@@ -89,6 +89,7 @@ unified logging の実仕様に基づく使い分け。**`Logger.warning()` は�
 | 配置 | 責務 | 管理方針 |
 |---|---|---|
 | `AGENTS.md` | 全員が常時知る規約と正典への索引 | Single Source of Truth |
+| `.agents/integrations.json` | 正式対応Agent、skill探索方式、hook接続先 | 機械可読な対応一覧 |
 | `.agents/skills/` | 再利用する手順本文、検証基準、参照資料 | Agent共通の正典 |
 | `.claude/skills/` | Claude Codeのskill探索から共通skillへ接続 | 手順を持たない薄いアダプター |
 | `.claude/agents/` | Claude Code固有のサブエージェント定義 | 役割と共通基準への参照だけ |
@@ -114,6 +115,46 @@ PreToolUseのshell入力は両製品とも`tool_input.command`として受け取
 Agentのsandboxや権限モデルは製品ごとに異なるため完全には共通化せず、禁止理由を
 `AGENTS.md`、共用できる判定を`scripts/agent-hooks/`、接続と追加権限を製品別設定に
 分離する。個人用の`.claude/settings.local.json`はGit管理しない。
+
+### Agent設定を変更するとき
+
+`.agents/`、`.claude/`、`.codex/`、`scripts/agent-hooks/`などに触れる前に
+`.agents/skills/agent-config/SKILL.md`を読み、`.agents/integrations.json`に
+登録された全Agentとfallbackについて影響表を作る。
+
+共通skillを追加すると、`just agent-config-check`はregistryで`adapter`方式に
+登録された全Agentへ同名アダプターがあることを要求する。逆に、共通skillのない
+孤立アダプターも拒否する。frontmatterはRuby標準のPsychでYAMLとして解析し、
+文字列の`name`と`description`を要求する。Rubyは最小対応環境のmacOS 26と
+CI runnerに含まれる`/usr/bin/ruby`を使い、追加のgemは必要としない。Rubyを
+使わない場合はYAML parserの自作ではなく、再現可能なparserを`mise.toml`へ
+追加して置き換える。
+
+adapterは探索と製品固有設定だけを持つ薄い入口なので24行を上限とする。超える場合は
+共通skillや参照資料へ移せる手順本文が混入していないか確認する。共通skillと同名の
+Claude Code commandは、個別の名前一覧ではなく全共通skillを基準に拒否する。
+
+成功中の現構成だけでは、adapter欠落時などの失敗分岐にあるshell互換性問題を
+検出できない。構成検査ではRuby欠落を模擬し、一時fixtureへadapter欠落、
+同名command、不正YAML、adapter肥大をそれぞれ作り、意図した診断でfailすることも
+確認する。
+
+新しいAgent製品へ正式対応する場合は、registryへ次を登録する。
+
+- `id`: 製品を識別する安定した名前
+- `skills.mode`: 共通skillを直接探索する`native`、製品別入口を置く`adapter`、
+  指示ファイルから読む`instructions`
+- `skills.path`: 探索または入口に使うパス
+- `hooks`: 共通hookへ接続する製品別設定ファイル
+
+registryにない未知のAgentは`AGENTS.md`から`.agents/skills/`を読むfallbackで
+作業できるが、製品固有のskill自動探索やhook動作までは保証しない。正式対応へ
+昇格するときにregistry、接続層、既存全skillへの到達方法、手動確認結果を同じPRへ
+追加する。
+
+CIで確認できるのはファイル構造、YAML、参照、hook判定までである。製品上のskill
+列挙、project trust、hook発火は、新規sessionで手動確認しPR本文へ結果または
+未確認理由を残す。
 
 ## セットアップマーカー
 

@@ -21,6 +21,7 @@ setup-check:
 # Agent共通skill・環境別アダプター・危険コマンド防止hookを検証。
 agent-config-check:
     @bash scripts/check-agent-config.sh
+    @bash scripts/test-agent-config-check.sh
 
 # 全 Swift ソースを lint。
 lint:

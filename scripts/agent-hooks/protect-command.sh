@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# PreToolUse フック: 危険な Bash コマンドをブロックする。
-# exit 2 = ブロック(stderr が Claude にフィードバックされる)。
+# Claude Code / Codex共通のPreToolUseフック: 危険なshellコマンドをブロックする。
+# exit 2 = ブロック(stderrがAgentへフィードバックされる)。
 # 注意: settings.json の Bash deny ルールは前方一致で回避されうるため、ここが実質的な
-#       防御線(多層防御の 2 層目)。文字列検査であり完全ではない。
+#       防御線(多層防御の2層目)。文字列検査であり完全ではない。
 set -euo pipefail
 
 input=$(cat)

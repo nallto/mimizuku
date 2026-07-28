@@ -11,6 +11,12 @@ enum CaptureError: Error, LocalizedError {
     case bufferCopyFailed
     /// エコーキャンセル(AEC ポンプ)の処理に失敗した(マイク経路の欠損は許さない)。
     case aecProcessingFailed
+    /// AECブリッジを初期化できず、正式なマイク音源を生成できない。
+    case aecInitializationFailed
+    /// 初回renderが期限内に届かず、AEC処理を開始できない。
+    case aecReferenceStartTimedOut
+    /// 一時停止したrenderが期限内に戻らず、AEC処理を再開できない。
+    case aecReferenceRecoveryTimedOut
     /// 捕捉ソースの配線が欠けている(到達しない想定の防御。無言 skip にしない)。
     case inputUnavailable(StreamKind)
     /// 選択された捕捉ソースが、キャンセル以外で予期せず終了した。
@@ -24,6 +30,12 @@ enum CaptureError: Error, LocalizedError {
             "録音バッファの確保に失敗しました。"
         case .aecProcessingFailed:
             "エコーキャンセル処理に失敗しました。"
+        case .aecInitializationFailed:
+            "エコーキャンセルを初期化できませんでした。"
+        case .aecReferenceStartTimedOut:
+            "エコーキャンセルの参照音声を5秒以内に取得できませんでした。"
+        case .aecReferenceRecoveryTimedOut:
+            "エコーキャンセルの参照音声を復旧できませんでした。"
         case let .inputUnavailable(stream):
             "捕捉ソースの配線に失敗しました(\(stream.rawValue))。"
         case let .sourceEndedUnexpectedly(stream):

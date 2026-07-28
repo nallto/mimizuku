@@ -49,9 +49,8 @@ extension AecPump {
 
     /// マイク単体モード用: near-end(マイク)を AEC 処理しつつ、far-end 参照を**隠し tap**
     /// から取り込む(参照は録音・文字起こしには出さない ―― AEC-4。ADR-0013 の 4)。
-    /// 参照ストリームの失敗は AEC の劣化にとどめ、マイク(処理後)は流し続ける
-    /// (graceful degradation ―― TCC 未許可・tap 沈黙でも録音・文字起こしを止めない。
-    /// 参照が来なければ scheduler の安全弁が実時間で素通し解放する)。
+    /// 参照ストリームが中断した場合は新しいtapを再生成して復旧を試す。開始・復旧の
+    /// 期限内に参照が得られなければ、raw micへ戻さず処理済みストリームを失敗させる。
     /// `reference` は消費開始まで tap を生成しない遅延クロージャ(off-main で評価)。
     nonisolated func processedCaptureWithReference(
         mic: AsyncThrowingStream<TimestampedAudioBuffer, Error>,
@@ -70,7 +69,19 @@ extension AecPump {
             await self.setOutput(framesContinuation)
             await self.consumeCapture(mic)
         }
-        // 隠し参照(mic-only)。参照 tap の失敗はマイク経路を止めず、AEC の劣化にとどめる。
+        // captureやrenderの到着に依存しない期限監視。参照が完全に沈黙しても5秒で
+        // 必ず処理済みストリームを失敗させる。
+        let watchdogTask = Task {
+            while !Task.isCancelled {
+                do {
+                    try await Task.sleep(for: .milliseconds(100))
+                } catch {
+                    return
+                }
+                guard await self.checkReferenceDeadline() else { return }
+            }
+        }
+        // 隠し参照(mic-only)。中断時は期限内で再生成し、raw micへはフォールバックしない。
         let referenceTask = reference.map { make in
             Task { await self.consumeHiddenReference(make) }
         }
@@ -89,9 +100,12 @@ extension AecPump {
                 }
             }
             continuation.onTermination = { _ in
+                // actorへcancel処理が届く前にwatchdogへ通常停止を可視化する。
+                self.requestShutdown()
                 mapTask.cancel()
                 feedTask.cancel()
                 referenceTask?.cancel()
+                watchdogTask.cancel()
             }
         }
     }
@@ -104,10 +118,12 @@ extension AecPump {
                 await ingestCapture(item)
             }
             if Task.isCancelled {
-                // 通常停止では flush による bypass 遷移・degraded 通知を発生させない。
+                // 通常停止では終了drainによる状態遷移・失敗通知を発生させない。
                 await finishCapture(error: CancellationError())
             } else {
-                await finishCapture(error: nil)
+                // ライブマイクは利用者停止まで継続する契約。非キャンセルの正常終了は
+                // flush対象ではなく予期しない入力喪失として扱う。
+                await finishCapture(error: CaptureError.sourceEndedUnexpectedly(.microphone))
             }
         } catch is CancellationError {
             await finishCapture(error: CancellationError())
@@ -119,18 +135,29 @@ extension AecPump {
     private func consumeHiddenReference(
         _ make: @Sendable () -> AsyncThrowingStream<TimestampedAudioBuffer, Error>
     ) async {
-        do {
-            for try await item in make() {
-                await ingestRender(item)
+        while !Task.isCancelled, shouldRetryReference() {
+            do {
+                for try await item in make() {
+                    await ingestRender(item)
+                }
+                if !Task.isCancelled {
+                    await noteReferenceInterrupted(nil)
+                }
+            } catch is CancellationError {
+                return
+            } catch {
+                if !Task.isCancelled {
+                    await noteReferenceInterrupted(error)
+                }
             }
-            if !Task.isCancelled {
-                await noteReferenceFailed(nil)
-            }
-        } catch is CancellationError {
-            // セッション停止による通常終了。AEC 劣化として表示しない。
-        } catch {
-            if !Task.isCancelled {
-                await noteReferenceFailed(error)
+
+            guard !Task.isCancelled, shouldRetryReference() else { return }
+            // process tap の create→destroy→create を即時連打しない。ソース内部の再構築で
+            // 回復できずストリームが終了した場合だけ、短いbackoff後に新規tapを作る。
+            do {
+                try await Task.sleep(for: .milliseconds(500))
+            } catch {
+                return
             }
         }
     }

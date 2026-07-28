@@ -1,6 +1,6 @@
 # ADR-0013: エコーキャンセルは WebRTC AEC3 を採用し、処理後音声を録音・文字起こしの両方に使う
 
-- ステータス: Accepted
+- ステータス: Superseded by ADR-0014
 - 日付: 2026-07-21
 - 関連: #59(epic)/ #60(本判断)/ #61〜#64(実装スライス)/ ADR-0006(決定 1 を本 ADR で修正)/ docs/domain-pitfalls.md #12
 

@@ -23,7 +23,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/protect.sh"
+            "command": "bash \"$CLAUDE_PROJECT_DIR\"/scripts/agent-hooks/protect-command.sh"
           }
         ]
       }

@@ -6,18 +6,21 @@ Mimizuku の現在の設計とデータフロー。これは「設計の正」�
 
 2 つの音声ストリーム(`AVAudioEngine` によるマイク、Core Audio process tap によるシステム出力)を捕捉し、ソースで文字起こし器の推奨フォーマットへ変換して、2 つの並行する`SpeechAnalyzer` / `SpeechTranscriber` セッションに流す。両ストリームの認識セグメントをアプリ側で 1 本のウォールクロックのタイムラインにマージし、ライブの追記型議事ログとして描画する。すべてオンデバイスで、ネットワークには何も送らない。
 
+S5以降の永続化では、確定した認識結果を処理中のJSONLジャーナルへ追記し、正常停止時にSpeechのfinalizeを待ってからMimizukuCoreの整形契約で表示ブロックへ変換する。停止後は`meta.json`と`transcript.json`を正典とし、Markdown / プレーンテキストは派生エクスポートとして生成する(ADR-0007)。
+
 ```text
    ┌──────────────────────────────────────────────────────┐
    │ Mimizuku(Xcode App ターゲット)                     │
    │  SwiftUI MenuBarExtra、設定、TCC オンボーディング、    │
    │  AudioRouter(ファンアウト: エンジン + 任意の録音)、   │
-   │  ライブ議事ログ UI、JSONL/TXT エクスポート            │
+   │  ライブ議事ログ UI、正常停止・finalizeの配線            │
    └───────────────┬──────────────────────────────────────┘
                    │ AudioSource / TranscriptionEngine(契約)
    ┌───────────────▼──────────────────────────────────────┐
    │ MimizukuCore(ローカル SPM パッケージ)                │
    │  AudioSource / StreamKind(捕捉契約)                  │
    │  TranscriptionEngine / TranscriptSegment(文字起こし契約)│
+   │  SessionStore / 文字起こし整形契約(S5)                │
    │  ※ 実装(MicrophoneSource, SystemAudioTapSource,      │
    │     SpeechEngine, format 変換, ゼロサンプル watchdog)  │
    │     は各スライスで追加。契約は先に固定する。            │
@@ -37,6 +40,7 @@ Mimizuku の現在の設計とデータフロー。これは「設計の正」�
 
 - `MimizukuCore.AudioSource` — cold・単一消費者の`AsyncThrowingStream<AVAudioPCMBuffer, Error>` + `format` + `kind`。
 - `MimizukuCore.TranscriptionEngine` / `TranscriptSegment` — `prepare(locale:)` + `segments(from:)`。テストで fake engine を使い、エンジンを差し替え可能にするため、Speech 型を含めない。
+- S5のセッション永続化 / 文字起こし整形契約 — UI・TCC・Speech型を含まないSendableな値型を境界にし、`SessionStore`、既定の純ロジック整形器、将来のオンデバイス整形器を差し替え可能にする(ADR-0007)。
 - ファンアウト(1 捕捉ストリームを文字起こしと任意のファイル録音へ)は App ターゲットの`AudioRouter` が担う。ソースは単一消費者のまま。
 - 話者帰属 = ストリーム同一性(domain-pitfalls #7 を参照)。
 

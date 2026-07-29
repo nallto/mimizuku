@@ -58,8 +58,7 @@ actor AecPump {
     private var renderTimeline = AecTimeline(rebaseThreshold: 0.05)
     private var aligner = AecAligner()
     private var scheduler = AecFeedScheduler()
-    private var renderDrift = AecDriftEstimator()
-    private var captureDrift = AecDriftEstimator()
+    private var drift = AecDriftDiagnostics()
     private var renderConverter: BufferConverter?
     private var captureConverter: BufferConverter?
     private var output: AsyncThrowingStream<AecFrame, Error>.Continuation?
@@ -166,7 +165,7 @@ actor AecPump {
             // 参照の単発欠落は aligner の無音充填で吸収される(致命にしない)。
             return
         }
-        renderDrift.record(sampleCount: samples.count, hostTime: item.hostTime)
+        drift.recordRender(sampleCount: samples.count, hostTime: item.hostTime)
         let time = renderTimeline.normalize(hostTime: item.hostTime, sampleCount: samples.count)
         if !loggedFirstRender {
             loggedFirstRender = true
@@ -209,7 +208,7 @@ actor AecPump {
             await finishCapture(error: CaptureError.aecProcessingFailed)
             return
         }
-        captureDrift.record(sampleCount: samples.count, hostTime: item.hostTime)
+        drift.recordCapture(sampleCount: samples.count, hostTime: item.hostTime)
         let time = captureTimeline.normalize(hostTime: item.hostTime, sampleCount: samples.count)
         captureFrontierTime = time + Double(samples.count) / 48000
         let now = Self.currentHostSeconds()
@@ -339,6 +338,7 @@ private extension AecPump {
         aligner = AecAligner()
         renderFramer = AecFramer()
         renderTimeline = AecTimeline(rebaseThreshold: 0.05)
+        drift.resetRenderForRecovery()
         reportedActive = false
     }
 
@@ -358,8 +358,8 @@ private extension AecPump {
     /// 30秒(3000フレーム)ごとにドリフト計測値を残す(補正判断の材料)。
     func logDriftIfNeeded() {
         guard processedFrames % 3000 == 0 else { return }
-        let capture = captureDrift.driftPPM.map { String(format: "%.1f", $0) } ?? "n/a"
-        let render = renderDrift.driftPPM.map { String(format: "%.1f", $0) } ?? "n/a"
+        let capture = drift.capturePPM.map { String(format: "%.1f", $0) } ?? "n/a"
+        let render = drift.renderPPM.map { String(format: "%.1f", $0) } ?? "n/a"
         logger.notice(
             """
             aec drift ppm: capture=\(capture, privacy: .public) \

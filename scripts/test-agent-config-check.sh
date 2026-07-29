@@ -24,6 +24,7 @@ trap cleanup EXIT
 mkdir -p \
   "$fixture_root/.claude" \
   "$fixture_root/.codex" \
+  "$fixture_root/docs" \
   "$fixture_root/scripts/agent-hooks"
 cp -R "$source_root/.agents" "$fixture_root/.agents"
 cp -R "$source_root/.claude/agents" "$fixture_root/.claude/agents"
@@ -31,7 +32,10 @@ cp -R "$source_root/.claude/hooks" "$fixture_root/.claude/hooks"
 cp -R "$source_root/.claude/skills" "$fixture_root/.claude/skills"
 cp "$source_root/.claude/settings.json" "$fixture_root/.claude/settings.json"
 cp "$source_root/.codex/hooks.json" "$fixture_root/.codex/hooks.json"
+cp "$source_root/.gitignore" "$fixture_root/.gitignore"
 cp "$source_root/AGENTS.md" "$fixture_root/AGENTS.md"
+cp "$source_root/CLAUDE.md" "$fixture_root/CLAUDE.md"
+cp "$source_root/docs/development.md" "$fixture_root/docs/development.md"
 cp \
   "$source_root/scripts/check-agent-config.sh" \
   "$source_root/scripts/check-skill-frontmatter.rb" \
@@ -112,5 +116,26 @@ while [[ $counter -lt 25 ]]; do
 done
 expect_failure "adapter肥大" "24行を超えているため手順本文の重複を確認する"
 mv "$adapter.bak" "$adapter"
+
+cp CLAUDE.md CLAUDE.md.bak
+grep -Fv "@AGENTS.md" CLAUDE.md.bak >CLAUDE.md
+expect_failure \
+  "Claude Code共通規約import欠落" \
+  "CLAUDE.md: AGENTS.mdをimportしていない"
+mv CLAUDE.md.bak CLAUDE.md
+
+cp .gitignore .gitignore.bak
+grep -Fv "/.claude/worktrees/" .gitignore.bak >.gitignore
+expect_failure \
+  "製品worktreeのignore欠落" \
+  ".claude/worktrees/agent-config-probe: Agent worktree配置がgitignoreされていない"
+mv .gitignore.bak .gitignore
+
+mkdir -p .claude/worktrees/stray
+touch .claude/worktrees/stray/tracked.txt
+git add --force .claude/worktrees/stray/tracked.txt
+expect_failure \
+  "製品worktree配下の追跡ファイル" \
+  "製品固有worktree配下に追跡ファイルがある: .claude/worktrees/stray/tracked.txt"
 
 echo "agent config negative tests passed"

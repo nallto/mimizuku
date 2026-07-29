@@ -37,6 +37,10 @@ sessions/
 CLAUDE.local.md
 .claude/settings.local.json
 
+# Agent製品の既定worktree配置(移行時の安全策。正式な配置はlocal/worktrees/)
+/.claude/worktrees/
+/.codex/worktrees/
+
 # 個人用ローカル領域(README 以外は追跡しない)
 /local/*
 !/local/README.md

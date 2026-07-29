@@ -51,6 +51,26 @@ grep -Fq "$fallback_skills" "$fallback_instructions" ||
   fail "$fallback_instructions: fallback skillsを参照していない"
 grep -Fq "$fallback_skills/agent-config/SKILL.md" "$fallback_instructions" ||
   fail "$fallback_instructions: Agent設定変更手順を参照していない"
+grep -Fq "local/worktrees/" "$fallback_instructions" ||
+  fail "$fallback_instructions: Agent worktreeの正式な配置を参照していない"
+grep -Fq "@$fallback_instructions" CLAUDE.md ||
+  fail "CLAUDE.md: ${fallback_instructions}をimportしていない"
+grep -Fq "Agent worktreeと作業ファイル" docs/development.md ||
+  fail "docs/development.md: Agent worktreeと作業ファイルの手順がない"
+
+for ignored_path in \
+  local/worktrees/agent-config-probe \
+  .claude/worktrees/agent-config-probe \
+  .codex/worktrees/agent-config-probe; do
+  git check-ignore --quiet "$ignored_path" ||
+    fail "$ignored_path: Agent worktree配置がgitignoreされていない"
+done
+
+tracked_product_worktrees=$(
+  git ls-files -- .claude/worktrees .codex/worktrees
+)
+[[ -z $tracked_product_worktrees ]] ||
+  fail "製品固有worktree配下に追跡ファイルがある: $tracked_product_worktrees"
 
 while IFS=$'\t' read -r agent_id discovery_mode discovery_path; do
   case "$discovery_mode" in

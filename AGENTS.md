@@ -90,6 +90,7 @@ AI のメモリ(auto memory / `CLAUDE.local.md`)は個人ローカルであり�
 ## Agent共通ワークフロー
 
 - 正式に接続しているAgent、skill探索方式、hook接続先は `.agents/integrations.json`を機械可読な一覧とする。未登録のAgentは `AGENTS.md`を入口に`.agents/skills/`を直接読むfallbackとして扱う。
+- Agentがこのリポジトリ用に明示的に作るworktreeは`local/worktrees/`、セッションやコマンドを越えて参照するプロジェクト固有の作業ファイルは`local/`に置く。`.claude/`と`.codex/`、システム一時領域を共通作業物の正式な置き場所にしない。終了時に必ず削除するfixtureとOS・toolchain・Agent製品自身の内部データは例外とする。具体的な作成方法と境界は[`docs/development.md`の「Agent worktreeと作業ファイル」](./docs/development.md#agent-worktreeと作業ファイル)、理由はG-0009に従う。
 - Agent向けskill本文の正典は`.agents/skills/`に置く。ここを直接探索しないAgentも、作業開始時に本ファイルから対応する`SKILL.md`を読んで適用する。
 - `.claude/skills/`はClaude Codeの探索用アダプターであり、共通skillを参照するだけにする。手順本文を複製しない。skill自体が`/adr`、`/check`、`/verify`等の起動口になるため、同名の`.claude/commands/`は持たない。
 - `.claude/agents/`など、各製品固有のサブエージェント定義には役割と共通基準への参照だけを置く。検証基準の正典は`.agents/skills/verify/references/`に置く。

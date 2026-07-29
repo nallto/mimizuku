@@ -132,6 +132,41 @@ registryにない未知のAgentは`AGENTS.md`から`.agents/skills/`を読むfal
 
 CIで確認できるのはファイル構造、YAML、参照、hook判定までである。製品上のskill列挙、project trust、hook発火は、新規sessionで手動確認しPR本文へ結果または未確認理由を残す。
 
+## Agent worktreeと作業ファイル
+
+Agentや開発者がこのリポジトリ用に明示的に作るGit worktreeは`local/worktrees/<issue番号>-<短い説明>/`へ置く。ブランチ名は従来どおり`<type>/<issue番号>-<短い説明>`とし、mainを同期してから次のように作成する(G-0009)。
+
+```bash
+git worktree add \
+  local/worktrees/88-agent-workspace \
+  -b chore/88-agent-workspace \
+  main
+```
+
+終了後は「変更をmainへ統合する」の承認と後始末に従って`git worktree remove`する。稼働中のworktreeを配置規約の変更だけを理由に移動・削除せず、次に作るworktreeから適用する。
+
+製品がセッション開始前にworktreeを作る場合は、その時点では`AGENTS.md`をまだ読めないため、リポジトリ規約だけで保存先を強制できない。利用形態ごとの接続方法は次のとおり。
+
+| 利用形態 | 接続方法 |
+| --- | --- |
+| [Codex App](https://learn.chatgpt.com/docs/environments/git-worktrees) | Settings > Worktrees > Worktree rootで、このリポジトリ用の保存先を指定できる場合は`local/worktrees/`へ向ける。Codexが管理するworktreeの保存先はリポジトリ設定から強制しない。 |
+| Codex CLI・未登録Agent | 上記の`git worktree add`で作成し、そのディレクトリからAgentを起動する。 |
+| [Claude Desktop](https://code.claude.com/docs/en/desktop) | Settings > Claude Code > Worktree locationで、このリポジトリ用の保存先を指定できる場合は`local/worktrees/`へ向ける。 |
+| [Claude Code CLI](https://code.claude.com/docs/en/worktrees) | `--worktree`の既定は`.claude/worktrees/`なので、このリポジトリでは上記の手動作成後に対象ディレクトリから`claude`を起動する。 |
+
+[Claude Codeの`WorktreeCreate` hook](https://code.claude.com/docs/en/hooks#worktreecreate)は既定のGit処理全体を置換し、base ref、PR起点、ローカルファイルの複製、cleanupも実装側の責務になる。配置変更だけのためには導入せず、製品固有ディレクトリは移行中の未追跡表示を防ぐ目的でgitignoreする。将来、同等のGit動作を維持したまま保存先だけを指定できるプロジェクト設定が提供された場合は、製品別アダプターとして採用を再検討する。
+
+作業ファイルは存続期間と所有者で配置を決める。
+
+| 種類 | 配置 | 後始末 |
+| --- | --- | --- |
+| PR本文、承認snapshot、検証結果など、ターンやセッションを越えて参照するプロジェクト固有ファイル | `local/agent-artifacts/` | 利用完了後に削除 |
+| 再取得・再生成できるプロジェクト固有キャッシュ | `local/cache/` | 不要になった時点で削除 |
+| 1コマンド内で完結するテストfixture | `mktemp`で得たシステム一時領域 | 同じプロセスの`trap`等で必ず削除 |
+| OS、Swift、Xcode、Agent製品自身が管理する内部データ | 各製品が定める保存先 | 各製品のretentionとcleanupに従う |
+
+`/private/tmp`などへ置いたファイルを後のターンやセッションで参照する運用は、cleanupを保証できずプロジェクトからも発見できないため行わない。恒久化すべき知識は`local/`に残さず、AGENTS.md、docs、ADR、GitHub Issueへ移す。
+
 ## セットアップマーカー
 
 - 二重波括弧の大文字プレースホルダと、コロン付きのセットアップマーカー(TODO に「(setup)」とコロンを付けたもの)は `just setup-check`(`just check` に含む)が検出し、解消するまでビルドを fail させる。本スケルトンはこれらをすべて解消済みで出荷している。
@@ -175,13 +210,15 @@ CIで確認できるのはファイル構造、YAML、参照、hook判定まで�
 2. `gh pr merge <number> --squash --match-head-commit <承認済みhead commit>`を使い、承認後のcommit差し替えを機械的に拒否する。subjectを `<PRタイトル> (#<number>)`、bodyを**PR本文全文**にする。コミット一覧の自動生成本文へ置き換えない。
 3. `gh pr view <number>`で`MERGED`、merge commit、`Closes`対象Issueのcloseを確認する。確認できない状態で後続作業へ進まない。
 
-CLIでは承認対象のsnapshotと本文を一時ファイルへ保持する。承認後に同じfieldsを再取得し、`cmp`が不一致ならマージせず再承認する。
+CLIでは承認対象のsnapshotと本文を`local/agent-artifacts/`へ保持する。承認後に同じfieldsを再取得し、`cmp`が不一致ならマージせず再承認する。
 
 ```bash
 pr_number=123
-pr_snapshot_file="$(mktemp)"
-current_snapshot_file="$(mktemp)"
-pr_body_file="$(mktemp)"
+pr_artifact_dir="local/agent-artifacts/pr-$pr_number"
+mkdir -p "$pr_artifact_dir"
+pr_snapshot_file="$pr_artifact_dir/approved.json"
+current_snapshot_file="$pr_artifact_dir/current.json"
+pr_body_file="$pr_artifact_dir/body.md"
 gh pr view "$pr_number" \
   --json baseRefName,headRefName,headRefOid,title,body > "$pr_snapshot_file"
 
@@ -199,9 +236,13 @@ gh pr merge "$pr_number" --squash \
   --match-head-commit "$approved_head" \
   --subject "$pr_title (#$pr_number)" \
   --body-file "$pr_body_file"
+
+# gh pr viewでマージ済みと確認した後
+rm -- "$pr_snapshot_file" "$current_snapshot_file" "$pr_body_file"
+rmdir -- "$pr_artifact_dir"
 ```
 
-`cmp`またはcheck確認が失敗したら後続コマンドを実行しない。一時ファイルはマージ確認後に削除する。削除を自動化できない環境では、保存場所を報告して利用者に後始末を委ねる。
+`cmp`またはcheck確認が失敗したら後続コマンドを実行しない。作業ファイルはマージ確認後に削除する。削除を自動化できない環境では、保存場所を報告して利用者に後始末を委ねる。
 
 ### 5. main同期とブランチの後始末
 

@@ -35,6 +35,7 @@
 | [G-0006](./governance/G-0006-agent-workflow-source.md) | Agent共通ワークフローは`.agents/skills`を正典とする | Accepted |
 | [G-0007](./governance/G-0007-markdown-soft-wrap.md) | Markdownはソフトラップを前提に整形する | Accepted |
 | [G-0008](./governance/G-0008-unified-agent-workflow.md) | Agent作業を単一ワークフローと利用者指定の停止条件に分離する | Accepted |
+| [G-0009](./governance/G-0009-agent-local-artifact-placement.md) | Agentのworktreeと作業ファイルをプロジェクト内に置く | Accepted |
 
 ## 書き方
 

@@ -58,10 +58,16 @@ final class RoutedAudioSource: AudioSource {
     let kind: StreamKind
 
     private nonisolated(unsafe) var stream: AsyncThrowingStream<AVAudioPCMBuffer, Error>?
+    private let stopCapture: @Sendable () -> Void
 
-    init(kind: StreamKind, stream: AsyncThrowingStream<AVAudioPCMBuffer, Error>) {
+    init(
+        kind: StreamKind,
+        stream: AsyncThrowingStream<AVAudioPCMBuffer, Error>,
+        stopCapture: @escaping @Sendable () -> Void
+    ) {
         self.kind = kind
         self.stream = stream
+        self.stopCapture = stopCapture
     }
 
     func buffers() -> AsyncThrowingStream<AVAudioPCMBuffer, Error> {
@@ -70,6 +76,11 @@ final class RoutedAudioSource: AudioSource {
         }
         self.stream = nil
         return stream
+    }
+
+    /// 捕捉を終了し、文字起こし側には正常な入力終端として通知する。先にstreamをfinishしてからproducerをcancelするため、SpeechEngineはキャンセル経路ではなくfinalize経路へ進める。
+    func stop() {
+        stopCapture()
     }
 }
 
@@ -99,7 +110,7 @@ enum AudioRouter {
         source: any AudioSource,
         transcriptionFormat: AVAudioFormat,
         recorder: AudioFileWriter,
-        onFirstBuffer: (@Sendable () -> Void)? = nil
+        onFirstBuffer: (@Sendable () async -> Void)? = nil
     ) -> RoutedAudioSource {
         let (stream, continuation) = AsyncThrowingStream.makeStream(of: AVAudioPCMBuffer.self)
 
@@ -119,7 +130,7 @@ enum AudioRouter {
                         )
                     }
                     if converters == nil {
-                        onFirstBuffer?()
+                        await onFirstBuffer?()
                     }
                     converters = (transcriptionConverter, recordingCopier)
 
@@ -140,7 +151,15 @@ enum AudioRouter {
         }
         continuation.onTermination = { _ in task.cancel() }
 
-        return RoutedAudioSource(kind: source.kind, stream: stream)
+        return RoutedAudioSource(
+            kind: source.kind,
+            stream: stream
+        ) {
+            // 正常終了を先に確定し、その後producerを止める。逆順ではCancellationErrorが
+            // SpeechEngineへ届き、末尾finalizeを迂回してしまう。
+            continuation.finish()
+            task.cancel()
+        }
     }
 
     private static func makeConverter(

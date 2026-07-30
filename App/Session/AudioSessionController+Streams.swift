@@ -7,38 +7,52 @@ extension AudioSessionController {
     /// 各ストリームの `Source → AudioRouter → SpeechEngine` を TaskGroup で並行実行し、
     /// セグメントをライブログへ合流させる。1 つでも失敗したら throw で全体を畳む
     /// (グループのキャンセルで他ストリームの捕捉・録音も解放される)。
-    func runStreams(
-        _ sessions: [StreamSession],
-        inputs: [StreamKind: any AudioSource],
-        targetFormat: AVAudioFormat,
-        generation: UInt64
-    ) async throws {
+    func runStreams(_ execution: StreamExecution) async throws {
         let sessionStart = ContinuousClock.now
         let logger = logger
+        var routedSessions: [(session: StreamSession, source: RoutedAudioSource)] = []
+        for session in execution.sessions {
+            guard let source = execution.inputs[session.stream] else {
+                throw CaptureError.inputUnavailable(session.stream)
+            }
+            let label = session.stream.rawValue
+            let stream = session.stream
+            let routed = AudioRouter.route(
+                source: source,
+                transcriptionFormat: execution.targetFormat,
+                recorder: session.recorder
+            ) {
+                // 全Speech時刻の原点をrunStreams開始へ揃え、ストリーム開始差を保持する。
+                let offset = sessionStart.duration(to: .now) / .seconds(1)
+                await execution.transcriptRun.setStartOffset(offset, for: stream)
+                let ms = Int((offset * 1000).rounded())
+                logger.notice(
+                    "first buffer (\(label, privacy: .public)): +\(ms, privacy: .public)ms"
+                )
+            }
+            routedSessions.append((session, routed))
+        }
+        let stopTask = Task {
+            for await _ in execution.stopSignal.events {
+                for routed in routedSessions {
+                    routed.source.stop()
+                }
+                break
+            }
+        }
+        defer { stopTask.cancel() }
+
         try await withThrowingTaskGroup(of: Void.self) { group in
-            for session in sessions {
-                guard let source = inputs[session.stream] else {
-                    // 到達しない想定(inputs と sessions は同じ streams から作られる)だが、
-                    // 万一の欠損を無言skipにしない(録音・文字起こしの黙殺を許さない)。
-                    throw CaptureError.inputUnavailable(session.stream)
-                }
-                let label = session.stream.rawValue
+            for routedSession in routedSessions {
+                let session = routedSession.session
                 let streamEngine = session.engine
-                let routed = AudioRouter.route(
-                    source: source,
-                    transcriptionFormat: targetFormat,
-                    recorder: session.recorder
-                ) {
-                    // 捕捉開始オフセットの計測(S4 の時刻同期確認)。ストリーム間の
-                    // 差分が録音ファイル先頭のずれの目安になる。
-                    let ms = Int((sessionStart.duration(to: .now) / .milliseconds(1)).rounded())
-                    logger.notice(
-                        "first buffer (\(label, privacy: .public)): +\(ms, privacy: .public)ms"
-                    )
-                }
+                let routed = routedSession.source
                 group.addTask { [weak self] in
                     for try await segment in streamEngine.segments(from: routed) {
-                        await self?.apply(segment, generation: generation)
+                        // finalはwrite-through同期後にだけUIへ反映する。kill -9で表示済みの
+                        // 確定行だけが失われる状態を作らない。
+                        let persisted = try await execution.transcriptRun.apply(segment)
+                        await self?.apply(persisted, generation: execution.generation)
                     }
                 }
             }

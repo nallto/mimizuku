@@ -4,12 +4,14 @@ import Foundation
 ///
 /// ```
 /// <root>/<yyyyMMdd-HHmmss>/
+///   meta.json
+///   transcript.json
+///   transcript.journal.jsonl  # 処理中・回復時だけ
 ///   mic.caf    → 変換後 mic.m4a
 ///   system.caf → 変換後 system.m4a
 /// ```
 ///
-/// ローカルファイル IO のみで UI/TCC 非依存(CI テスト可能)。メタデータファイルの
-/// 形式は D2 / ADR-0007 で決定するまで置かない。
+/// ローカルファイルIOのみでUI/TCC非依存(CIテスト可能)。メタデータと文字起こしの形式・確定順序はADR-0007に従う。
 public struct SessionLayout: Sendable {
     /// セッションディレクトリ群の親(例: `~/Library/Application Support/Mimizuku/sessions`)。
     public let root: URL

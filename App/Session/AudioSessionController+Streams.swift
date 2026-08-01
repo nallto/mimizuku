@@ -52,6 +52,9 @@ extension AudioSessionController {
                         // finalはwrite-through同期後にだけUIへ反映する。kill -9で表示済みの
                         // 確定行だけが失われる状態を作らない。
                         let persisted = try await execution.transcriptRun.apply(segment)
+                        // 診断への転送は generation 非依存(この実行の試行へ届ける。
+                        // stop 直後の start で旧 generation になっても final を失わない)。
+                        execution.diagnostics?.enqueueSpeech(persisted)
                         await self?.apply(persisted, generation: execution.generation)
                     }
                 }

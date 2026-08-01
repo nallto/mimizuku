@@ -174,19 +174,47 @@ struct AecFeedSchedulerTests {
         #expect(scheduler.heldCount == 0)
     }
 
-    @Test("保留上限超過分は原音を出さず破棄して有界化する")
+    @Test("保留上限超過分は原音を出さず破棄して有界化し、元 hostTime を報告する")
     func heldQueueIsBounded() {
         var scheduler = AecFeedScheduler(maxHeldFrames: 3)
         scheduler.begin(at: 0)
         scheduler.advanceRenderFrontier(startingAt: 0, to: 0)
+        var drops: [AecFeedScheduler.HeldOverflowDrop] = []
         for index in 0 ..< 5 {
-            scheduler.hold(
+            if let drop = scheduler.hold(
                 frame(Int16(index), at: Double(index + 10) * duration),
                 arrivedAt: 0
-            )
+            ) {
+                drops.append(drop)
+            }
         }
         #expect(scheduler.heldCount == 3)
         #expect(scheduler.droppedHeldFrames == 2)
         #expect(scheduler.discardedFrames == 2)
+        // 破棄された frame(0) / frame(1) の元 hostTime がイベントに残る(#75)。
+        #expect(drops == [
+            AecFeedScheduler.HeldOverflowDrop(
+                firstHostTime: Double(10) * duration,
+                lastHostTime: Double(10) * duration,
+                frameCount: 1
+            ),
+            AecFeedScheduler.HeldOverflowDrop(
+                firstHostTime: Double(11) * duration,
+                lastHostTime: Double(11) * duration,
+                frameCount: 1
+            )
+        ])
+    }
+
+    @Test("保留上限内では hold は破棄を報告しない")
+    func holdWithinLimitReportsNoDrop() {
+        var scheduler = AecFeedScheduler(maxHeldFrames: 3)
+        scheduler.begin(at: 0)
+        for index in 0 ..< 3 {
+            #expect(scheduler.hold(
+                frame(Int16(index), at: Double(index) * duration),
+                arrivedAt: 0
+            ) == nil)
+        }
     }
 }

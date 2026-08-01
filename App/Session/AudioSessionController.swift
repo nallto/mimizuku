@@ -50,6 +50,13 @@ final class AudioSessionController {
     var sessionTask: Task<Void, Never>?
     /// 通常停止を捕捉ストリームへ伝える。準備中はnilなので、stopはTaskを直接cancelする。
     var activeStopSignal: SessionStopSignal?
+    /// AEC 診断試行(#75 / ADR-0015)。揮発性起動引数 `-AecDiagnosticsEnabled YES` で
+    /// 有効化された場合のみ生成される。所有と exactly-once close は `runSession` が担う
+    /// (pump は `pumpFinished` イベントを送るだけで close しない)。書き込みは
+    /// `runSession` と `+Diagnostics` extension に限る。
+    var aecDiagnosticsTrial: AecDiagnosticsTrial?
+    /// 起動引数キー(argument domain のみを読む ―― 永続 defaults では有効化させない)。
+    static let aecDiagnosticsDefaultsKey = "AecDiagnosticsEnabled"
     /// start/stopをまたいで遅延到着する旧セッションの通知・後始末を識別する。
     /// 世代が一致しない処理は録音ファイルのクローズ以外のUI状態を変更しない。
     private var sessionGeneration: UInt64 = 0

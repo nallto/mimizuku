@@ -16,6 +16,10 @@ extension AudioSessionController {
         let transcriptRun: TranscriptRun
         let stopSignal: SessionStopSignal
         let generation: UInt64
+        /// この実行が属する診断試行の sink(#75)。UI の generation 判定と独立に
+        /// ストリームループから転送するため、実行単位で保持する(stop 直後の start で
+        /// 旧 generation になっても、旧試行の Speech final は旧試行へ届く)。
+        let diagnostics: AecDiagnosticsRecorder?
     }
 
     private struct Preparation {
@@ -56,7 +60,23 @@ extension AudioSessionController {
     func runSession(generation: UInt64) async {
         defer { finishSession(generation: generation) }
         guard let prepared = await prepareSession(generation: generation) else { return }
-        let outcome = await runCaptureSession(prepared, generation: generation)
+        // 診断試行(#75)は runSession がローカルに所有する(旧 generation になっても
+        // close を省略しない)。生成失敗は診断なしで続行する(正式セッションを止めない)。
+        let trial = makeAecDiagnosticsTrial(streams: prepared.streams)
+        aecDiagnosticsTrial = trial
+        let outcome = await runCaptureSession(
+            prepared,
+            generation: generation,
+            diagnostics: trial?.recorder
+        )
+        // runStreams 完了後 = Speech results の消費完了後に一度だけ drain/close する
+        // (キャンセル・開始失敗・通常終了のすべてがこの経路を通る)。startOffsets は
+        // Speech 時刻(セッション原点)と mic 解析原点の対応付けに使う。
+        aecDiagnosticsTrial = nil
+        if let trial {
+            let offsets = await prepared.transcriptRun.snapshot().startOffsets
+            await closeAecDiagnostics(trial, speechStartOffsets: offsets)
+        }
         if case .failedStart = outcome {
             await discardFailedStart(prepared, generation: generation)
             return
@@ -297,7 +317,8 @@ extension AudioSessionController {
 
     private func runCaptureSession(
         _ prepared: PreparedSession,
-        generation: UInt64
+        generation: UInt64,
+        diagnostics: AecDiagnosticsRecorder?
     ) async -> CaptureSessionOutcome {
         do {
             let inputs = try await makeInputs(for: prepared.streams, generation: generation)
@@ -308,7 +329,8 @@ extension AudioSessionController {
                 targetFormat: prepared.targetFormat,
                 transcriptRun: prepared.transcriptRun,
                 stopSignal: prepared.stopSignal,
-                generation: generation
+                generation: generation,
+                diagnostics: diagnostics
             ))
             return .completed
         } catch is CancellationError {

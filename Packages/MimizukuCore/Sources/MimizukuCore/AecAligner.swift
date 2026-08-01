@@ -28,15 +28,53 @@ import Foundation
 ///   **起動順に依存せず**収束させる(既存の「render 未開始まで capture を流さない」
 ///   ―― capture 先行対策の対称版)。
 public struct AecAligner: Sendable {
+    /// APM へ給餌する render フレームの出自(#75 の診断対象)。
+    public enum RenderProvenance: Sendable, Equatable {
+        /// tap から届いた実参照。
+        case actual
+        /// 欠落を充填した無音(実世界のエコー源とは対応しない)。
+        case gapFilled
+    }
+
+    /// APM へ給餌する render フレーム + 出自。
+    public struct RenderFeed: Sendable, Equatable {
+        public var frame: AecFrame
+        public var provenance: RenderProvenance
+
+        public init(frame: AecFrame, provenance: RenderProvenance) {
+            self.frame = frame
+            self.provenance = provenance
+        }
+    }
+
+    /// 整列中に起きた render の破棄(#75 の診断対象 ―― counter だけでは失われる
+    /// 元 hostTime を保持する)。破棄はいずれも production 側の正常動作であり、
+    /// 診断試行を invalid にはしない。
+    public enum Event: Sendable, Equatable {
+        /// 充填済み時刻より古い遅延到着 render を捨てた(二重給餌防止)。
+        case lateRenderDropped(hostTime: TimeInterval)
+        /// 滞留上限超過で最古の render を捨てた。
+        case queueOverflowDropped(firstHostTime: TimeInterval, frameCount: Int)
+        /// capture より `maxRenderLead` 以上先行する render を捨てた(#64)。
+        case leadRenderDropped(
+            firstHostTime: TimeInterval,
+            lastHostTime: TimeInterval,
+            frameCount: Int
+        )
+    }
+
     /// 1 回の capture 給餌の手順。
     public struct Step: Sendable, Equatable {
         /// capture より先に(この順で)給餌する render フレーム。無音充填を含む。
-        public var render: [AecFrame]
+        public var render: [RenderFeed]
         public var capture: AecFrame
+        /// この呼び出し中に起きた破棄。
+        public var events: [Event]
 
-        public init(render: [AecFrame], capture: AecFrame) {
+        public init(render: [RenderFeed], capture: AecFrame, events: [Event] = []) {
             self.render = render
             self.capture = capture
+            self.events = events
         }
     }
 
@@ -57,7 +95,7 @@ public struct AecAligner: Sendable {
     /// 無音で充填した render フレーム数(診断用)。
     public private(set) var filledSilenceFrames: Int = 0
 
-    private var renderQueue: [AecFrame] = []
+    private var renderQueue: [RenderFeed] = []
     /// 次に来るべき render フレームの時刻(render 未開始なら nil)。
     private var renderExpectedNext: TimeInterval?
     private var frameDuration: TimeInterval { Double(frameLength) / sampleRate }
@@ -76,32 +114,42 @@ public struct AecAligner: Sendable {
         self.maxRenderLead = maxRenderLead
     }
 
-    public mutating func appendRender(_ frame: AecFrame) {
+    @discardableResult
+    public mutating func appendRender(_ frame: AecFrame) -> [Event] {
+        var events: [Event] = []
         if let expected = renderExpectedNext {
             // 充填済み時刻より古い遅延到着は捨てる(無音充填との二重給餌で render
             // 時計が進みすぎるのを防ぐ)。
             if frame.hostTime < expected - frameDuration / 2 {
                 droppedRenderFrames += 1
-                return
+                return [.lateRenderDropped(hostTime: frame.hostTime)]
             }
             // 欠落(半フレーム超の飛び)は無音で充填して render 時計を連続に保つ。
             var next = expected
             while frame.hostTime - next > frameDuration / 2 {
-                enqueue(AecFrame(samples: silence, hostTime: next))
+                enqueue(RenderFeed(
+                    frame: AecFrame(samples: silence, hostTime: next),
+                    provenance: .gapFilled
+                ), into: &events)
                 filledSilenceFrames += 1
                 next += frameDuration
             }
         }
-        enqueue(frame)
+        enqueue(RenderFeed(frame: frame, provenance: .actual), into: &events)
         renderExpectedNext = frame.hostTime + frameDuration
+        return events
     }
 
     public mutating func appendCapture(_ frame: AecFrame) -> Step {
+        var events: [Event] = []
         // render 側が止まっている(tap 再構築等)まま capture が進んだ場合も、
         // capture 時刻まで無音で充填する。render 未開始なら何も流さない。
         if var next = renderExpectedNext {
             while frame.hostTime - next > -frameDuration / 2 {
-                enqueue(AecFrame(samples: silence, hostTime: next))
+                enqueue(RenderFeed(
+                    frame: AecFrame(samples: silence, hostTime: next),
+                    provenance: .gapFilled
+                ), into: &events)
                 filledSilenceFrames += 1
                 next += frameDuration
             }
@@ -113,27 +161,44 @@ public struct AecAligner: Sendable {
         // 先行起動して render が貯まった場合(#64)、貯まった全 render を一気に APM へ流すと
         // far-end↔near-end 遅延が AEC3 の探索窓を超えて打ち消せない。窓内に抑える。
         let leadFloor = frame.hostTime - maxRenderLead
-        while let first = renderQueue.first, first.hostTime < leadFloor {
+        var droppedLead: [TimeInterval] = []
+        while let first = renderQueue.first, first.frame.hostTime < leadFloor {
+            droppedLead.append(first.frame.hostTime)
             renderQueue.removeFirst()
             droppedLeadRenderFrames += 1
+        }
+        if let firstDropped = droppedLead.first, let lastDropped = droppedLead.last {
+            events.append(.leadRenderDropped(
+                firstHostTime: firstDropped,
+                lastHostTime: lastDropped,
+                frameCount: droppedLead.count
+            ))
         }
 
         // capture 時刻以前の render をすべて払い出す(APM へ先に給餌する分)。
         let cutoff = frame.hostTime + frameDuration / 2
-        var render: [AecFrame] = []
-        while let first = renderQueue.first, first.hostTime < cutoff {
+        var render: [RenderFeed] = []
+        while let first = renderQueue.first, first.frame.hostTime < cutoff {
             render.append(first)
             renderQueue.removeFirst()
         }
-        return Step(render: render, capture: frame)
+        return Step(render: render, capture: frame, events: events)
     }
 
     private var silence: [Int16] { [Int16](repeating: 0, count: frameLength) }
 
-    private mutating func enqueue(_ frame: AecFrame) {
-        renderQueue.append(frame)
+    private mutating func enqueue(_ feed: RenderFeed, into events: inout [Event]) {
+        renderQueue.append(feed)
         if renderQueue.count > maxQueuedRenderFrames {
-            renderQueue.removeFirst(renderQueue.count - maxQueuedRenderFrames)
+            let overflow = renderQueue.count - maxQueuedRenderFrames
+            let dropped = renderQueue.prefix(overflow)
+            if let first = dropped.first {
+                events.append(.queueOverflowDropped(
+                    firstHostTime: first.frame.hostTime,
+                    frameCount: overflow
+                ))
+            }
+            renderQueue.removeFirst(overflow)
             droppedRenderFrames += 1
         }
     }

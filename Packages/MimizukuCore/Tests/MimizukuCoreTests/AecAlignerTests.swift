@@ -15,6 +15,7 @@ struct AecAlignerTests {
         var aligner = AecAligner()
         let step = aligner.appendCapture(frame(1, at: 0))
         #expect(step.render.isEmpty)
+        #expect(step.events.isEmpty)
         #expect(aligner.filledSilenceFrames == 0)
     }
 
@@ -26,11 +27,12 @@ struct AecAlignerTests {
         aligner.appendRender(frame(10, at: 1.2))
         aligner.appendRender(frame(11, at: 1.2 + duration))
         let step = aligner.appendCapture(frame(2, at: 1.2 + duration))
-        #expect(step.render.map(\.hostTime) == [1.2, 1.2 + duration])
+        #expect(step.render.map(\.frame.hostTime) == [1.2, 1.2 + duration])
+        #expect(step.render.allSatisfy { $0.provenance == .actual })
         #expect(step.capture == frame(2, at: 1.2 + duration))
     }
 
-    @Test("render の欠落は無音で充填され render 時計が連続に保たれる")
+    @Test("render の欠落は無音で充填され、充填フレームは gapFilled と識別できる")
     func renderGapIsFilledWithSilence() {
         var aligner = AecAligner()
         aligner.appendRender(frame(10, at: 0))
@@ -39,7 +41,11 @@ struct AecAlignerTests {
         #expect(aligner.filledSilenceFrames == 4)
         let step = aligner.appendCapture(frame(1, at: duration * 5))
         #expect(step.render.count == 6)
-        #expect(step.render[1].samples == [Int16](repeating: 0, count: 480))
+        #expect(step.render[1].frame.samples == [Int16](repeating: 0, count: 480))
+        // 実参照と充填無音の出自が保たれる(#75 ―― render-fed の provenance)。
+        #expect(step.render.map(\.provenance) == [
+            .actual, .gapFilled, .gapFilled, .gapFilled, .gapFilled, .actual
+        ])
     }
 
     @Test("render が止まったまま capture が進んでも無音充填で追随する(tap 再構築)")
@@ -50,27 +56,34 @@ struct AecAlignerTests {
         // 0.01〜0.05 の 5 フレームが無音充填され、0.00 の実フレームと合わせて 6。
         #expect(aligner.filledSilenceFrames == 5)
         #expect(step.render.count == 6)
+        #expect(step.render.dropFirst().allSatisfy { $0.provenance == .gapFilled })
     }
 
-    @Test("充填済み時刻より古い遅延到着 render は捨てる(二重給餌防止)")
+    @Test("充填済み時刻より古い遅延到着 render は捨て、元 hostTime をイベントで報告する")
     func staleRenderIsDropped() {
         var aligner = AecAligner()
         aligner.appendRender(frame(10, at: 0))
         _ = aligner.appendCapture(frame(1, at: duration * 5))
-        aligner.appendRender(frame(11, at: duration * 2))
+        let events = aligner.appendRender(frame(11, at: duration * 2))
         #expect(aligner.droppedRenderFrames == 1)
+        #expect(events == [.lateRenderDropped(hostTime: duration * 2)])
     }
 
-    @Test("滞留上限を超えた render は古い方から破棄されカウントされる")
+    @Test("滞留上限を超えた render は古い方から破棄されイベントで報告される")
     func overflowDropsOldest() {
         var aligner = AecAligner(maxQueuedRenderFrames: 3)
+        var events: [AecAligner.Event] = []
         for index in 0 ..< 5 {
-            aligner.appendRender(frame(Int16(index), at: Double(index) * duration))
+            events += aligner.appendRender(frame(Int16(index), at: Double(index) * duration))
         }
         #expect(aligner.droppedRenderFrames == 2)
+        #expect(events == [
+            .queueOverflowDropped(firstHostTime: 0, frameCount: 1),
+            .queueOverflowDropped(firstHostTime: duration, frameCount: 1)
+        ])
         // 最後の render と同時刻の capture(充填なし)。最新の 3 フレームだけが残る。
         let step = aligner.appendCapture(frame(9, at: Double(4) * duration))
-        #expect(step.render.map(\.samples[0]) == [2, 3, 4])
+        #expect(step.render.map(\.frame.samples[0]) == [2, 3, 4])
     }
 
     @Test("tap 先行起動: capture より先行しすぎる render は上限を超えた分だけ捨てる(#64)")
@@ -85,11 +98,18 @@ struct AecAlignerTests {
         let step = aligner.appendCapture(frame(99, at: captureTime))
         // 先行上限(captureTime - 50ms = t=4)より古い render[0..3] は捨てる。
         #expect(aligner.droppedLeadRenderFrames == 4)
+        // 捨てた render の元 hostTime 範囲がイベントに残る(#75 ―― render-fed に
+        // 存在しない参照の観測)。
+        #expect(step.events == [.leadRenderDropped(
+            firstHostTime: 0,
+            lastHostTime: Double(3) * duration,
+            frameCount: 4
+        )])
         // APM へ渡る render はすべて capture から maxRenderLead 以内の先行に収まる。
         for render in step.render {
-            #expect(captureTime - render.hostTime <= duration * 5 + 1e-9)
+            #expect(captureTime - render.frame.hostTime <= duration * 5 + 1e-9)
         }
-        #expect(step.render.map(\.samples[0]) == [4, 5, 6, 7, 8, 9])
+        #expect(step.render.map(\.frame.samples[0]) == [4, 5, 6, 7, 8, 9])
     }
 
     @Test("定常状態(render と capture が同時に流れる)では先行破棄は起きない")
@@ -100,6 +120,7 @@ struct AecAlignerTests {
             aligner.appendRender(frame(Int16(index), at: Double(index) * duration))
             let step = aligner.appendCapture(frame(Int16(index), at: Double(index) * duration))
             #expect(step.render.count == 1)
+            #expect(step.events.isEmpty)
         }
         #expect(aligner.droppedLeadRenderFrames == 0)
     }

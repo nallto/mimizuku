@@ -80,6 +80,43 @@ static const int kFrameSamples = kSampleRateHz / 100; // 10ms = 480
     }
 }
 
+- (AudioProcessingBridgeStats)statistics {
+    AudioProcessingBridgeStats stats = {};
+    if (!_apm) {
+        return stats;
+    }
+    const webrtc::AudioProcessingStats source = _apm->GetStatistics();
+    if (source.echo_return_loss.has_value()) {
+        stats.hasEchoReturnLoss = YES;
+        stats.echoReturnLoss = *source.echo_return_loss;
+    }
+    if (source.echo_return_loss_enhancement.has_value()) {
+        stats.hasEchoReturnLossEnhancement = YES;
+        stats.echoReturnLossEnhancement = *source.echo_return_loss_enhancement;
+    }
+    if (source.delay_ms.has_value()) {
+        stats.hasDelayMs = YES;
+        stats.delayMs = (double)*source.delay_ms;
+    }
+    if (source.delay_median_ms.has_value()) {
+        stats.hasDelayMedianMs = YES;
+        stats.delayMedianMs = (double)*source.delay_median_ms;
+    }
+    if (source.delay_standard_deviation_ms.has_value()) {
+        stats.hasDelayStdMs = YES;
+        stats.delayStdMs = (double)*source.delay_standard_deviation_ms;
+    }
+    if (source.divergent_filter_fraction.has_value()) {
+        stats.hasDivergentFilterFraction = YES;
+        stats.divergentFilterFraction = *source.divergent_filter_fraction;
+    }
+    if (source.residual_echo_likelihood.has_value()) {
+        stats.hasResidualEchoLikelihood = YES;
+        stats.residualEchoLikelihood = *source.residual_echo_likelihood;
+    }
+    return stats;
+}
+
 - (void)shutdown {
     _apm = nullptr;
 }

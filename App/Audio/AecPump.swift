@@ -1,30 +1,6 @@
 import AVFoundation
 import MimizukuCore
 import OSLog
-import Synchronization
-
-/// actor hopなしで通常停止を刻み、実行待ちwatchdogの失敗通知を抑止する。
-private final class AecShutdownGate: Sendable {
-    private let flag = Mutex(false)
-
-    var isSet: Bool {
-        flag.withLock { $0 }
-    }
-
-    func set() {
-        flag.withLock { $0 = true }
-    }
-}
-
-/// AEC ポンプからセッション制御層へ通知する実行時状態。
-enum AecRuntimeStatus: Sendable, Equatable {
-    /// 対応するrender/captureをAPMへ実際に給餌し、処理後音声を出力した。
-    case active
-    /// render が一時的に途切れ、原音を無音へ置き換えながら復旧を待っている。
-    case recovering
-    /// 開始または復旧期限を超え、正式なマイク音源を生成できない。
-    case failed(AecFeedScheduler.FailureReason)
-}
 
 /// WebRTC AEC3 のライブ適用ポンプ(#63 / #64、ADR-0013)。
 ///
@@ -42,42 +18,58 @@ enum AecRuntimeStatus: Sendable, Equatable {
 /// - マイク経路の処理失敗は無言で欠損させず、処理後ストリームを throw で畳んで
 ///   セッション全体を止める(既存原則)。
 actor AecPump {
-    private let bridge = AudioProcessingBridge()
-    private let logger = Logger(subsystem: "dev.nallto.Mimizuku", category: "aec")
-    private let statusHandler: @MainActor @Sendable (AecRuntimeStatus) -> Void
-    private let shutdownGate = AecShutdownGate()
+    // 以下の stored property の一部は同一ファイル外の extension(+Diagnostics /
+    // +Support)から使うため private を付けない。actor 分離が排他を担保する。
+    let bridge = AudioProcessingBridge()
+    let logger = Logger(subsystem: "dev.nallto.Mimizuku", category: "aec")
+    let statusHandler: @MainActor @Sendable (AecRuntimeStatus) -> Void
+    let shutdownGate = AecShutdownGate()
+    /// 診断シンク(#75 / ADR-0015)。nil なら記録は完全に無効(RMS 計算も行わない)。
+    /// 投入は非ブロッキングで、書き込みは専用 writer Task が行う(観測がタイミングを
+    /// 変えないため)。
+    let diagnostics: AecDiagnosticsRecorder?
 
-    private var renderFramer = AecFramer()
-    private var captureFramer = AecFramer()
+    var renderFramer = AecFramer()
+    var captureFramer = AecFramer()
     // 実測ホストタイムはジッタを持つため、サンプルクロック由来の連続タイムラインへ
     // 正規化してから使う(AecTimeline のコメント参照 ―― ジッタをそのまま framer へ
     // 渡すと不連続破棄が頻発し、マイクが約 5% 欠けて AEC がロックしない実測)。
     // 閾値: capture(マイク)はエンジン継続中に本物の欠落が起きない前提で緩め、
     // render(tap)は再構築の欠落(数十 ms〜)をリベースとして検出できるよう狭める。
-    private var captureTimeline = AecTimeline(rebaseThreshold: 0.25)
-    private var renderTimeline = AecTimeline(rebaseThreshold: 0.05)
-    private var aligner = AecAligner()
-    private var scheduler = AecFeedScheduler()
-    private var drift = AecDriftDiagnostics()
+    var captureTimeline = AecTimeline(rebaseThreshold: 0.25)
+    var renderTimeline = AecTimeline(rebaseThreshold: 0.05)
+    var aligner = AecAligner()
+    var scheduler = AecFeedScheduler()
+    var drift = AecDriftDiagnostics()
     private var renderConverter: BufferConverter?
     private var captureConverter: BufferConverter?
-    private var output: AsyncThrowingStream<AecFrame, Error>.Continuation?
-    private var started = false
-    private var processedFrames = 0
-    private var silencedFrames = 0
+    var output: AsyncThrowingStream<AecFrame, Error>.Continuation?
+    var started = false
+    var processedFrames = 0
+    var silencedFrames = 0
     /// `.active` は初回 render 受信時ではなく、対応する capture を実際に APM へ
     /// 入れた時点で一度だけ通知する。
-    private var reportedActive = false
+    var reportedActive = false
     /// 復旧時に古い同期epochをAPMへ持ち越さないため、次の有効render受信前に
     /// bridge/aligner/framerを一度だけ初期化する。
     private var recoveryResetPending = false
-    private var reportedFailure = false
+    var reportedFailure = false
     /// 診断: capture 側の正規化タイムラインの現在端(初回 render とのオフセット計測用)。
     private var captureFrontierTime: TimeInterval?
     private var loggedFirstRender = false
+    /// 同期 epoch(復旧リセットごとに +1)。診断レコードの対応付けに使う。
+    var epoch = 0
+    /// capture 解放順の連番(capture-raw / capture-processed CAF の位置)。
+    var captureFrameIndex = 0
+    /// `.silence` を含め output へ実際に yield したフレーム数(Speech への供給順)。
+    var outputFrameIndex = 0
+    /// framer 通過後の実参照フレーム連番(render-received CAF の位置)。
+    var renderFrameIndex = 0
+    /// APM への給餌順連番 = APM 内部時間の正典(render-fed CAF の位置)。
+    var fedIndex = 0
 
     /// ブリッジ契約の内部フォーマット。
-    private static let aecFormat = AVAudioFormat(
+    static let aecFormat = AVAudioFormat(
         commonFormat: .pcmFormatInt16,
         sampleRate: 48000,
         channels: 1,
@@ -85,8 +77,10 @@ actor AecPump {
     )
 
     init(
+        diagnostics: AecDiagnosticsRecorder? = nil,
         statusHandler: @escaping @MainActor @Sendable (AecRuntimeStatus) -> Void = { _ in }
     ) {
+        self.diagnostics = diagnostics
         self.statusHandler = statusHandler
     }
 
@@ -107,10 +101,6 @@ actor AecPump {
         output = continuation
     }
 
-    nonisolated func requestShutdown() {
-        shutdownGate.set()
-    }
-
     /// 隠し参照tapのストリーム中断(mic-only)。開始待ちでは期限まで再生成を許し、
     /// 稼働後はrecoveringへ移る。いずれもマイク原音は正式出力へ流さない。
     func noteReferenceInterrupted(_ error: (any Error)?) async {
@@ -122,10 +112,18 @@ actor AecPump {
         } else {
             logger.notice("aec hidden reference interrupted without error")
         }
-        let transition = scheduler.markReferenceInterrupted(at: Self.currentHostSeconds())
+        let now = Self.currentHostSeconds()
+        note(.event(.init(
+            kind: .referenceInterrupted,
+            hostTime: now,
+            epoch: epoch,
+            message: error?.localizedDescription
+        )))
+        let transition = scheduler.markReferenceInterrupted(at: now)
         if transition == .recovering {
             recoveryResetPending = true
             reportedActive = false
+            note(.event(.init(kind: .recoveryEntered, hostTime: now, epoch: epoch)))
             await statusHandler(.recovering)
         }
         await releaseAndProcess()
@@ -166,24 +164,29 @@ actor AecPump {
             return
         }
         drift.recordRender(sampleCount: samples.count, hostTime: item.hostTime)
-        let time = renderTimeline.normalize(hostTime: item.hostTime, sampleCount: samples.count)
-        if !loggedFirstRender {
-            loggedFirstRender = true
-            // セッション先頭のストリーム間アンカー差の実測(#63 のパターン切り分け用)。
-            // 0 近傍が期待値。大きな正負はタイムスタンプ意味差/ウォームアップ誤差のサイン。
-            let deltaMs = Int(((captureFrontierTime ?? time) - time) * 1000)
-            let held = scheduler.heldCount
-            logger.notice(
-                """
-                aec first render: capture frontier vs render start = \
-                \(deltaMs, privacy: .public)ms held=\(held, privacy: .public)
-                """
-            )
+        let normalization = renderTimeline.normalize(
+            hostTime: item.hostTime,
+            sampleCount: samples.count
+        )
+        noteInputChunk(
+            .render,
+            observed: item.hostTime,
+            normalization: normalization,
+            sampleCount: samples.count,
+            driftPPM: drift.renderPPM
+        )
+        let time = normalization.hostTime
+        logFirstRenderIfNeeded(at: time)
+        let framed = renderFramer.append(samples: samples, hostTime: time)
+        if let discarded = framed.discarded {
+            noteFramerDiscard(.renderFramerDiscarded, discarded)
         }
-        let frames = renderFramer.append(samples: samples, hostTime: time)
+        let frames = framed.frames
         guard let first = frames.first, let last = frames.last else { return }
         for frame in frames {
-            aligner.appendRender(frame)
+            recordRenderReceived(frame)
+            renderFrameIndex += 1
+            noteAlignerEvents(aligner.appendRender(frame))
         }
         let transition = scheduler.advanceRenderFrontier(
             startingAt: first.hostTime,
@@ -209,11 +212,34 @@ actor AecPump {
             return
         }
         drift.recordCapture(sampleCount: samples.count, hostTime: item.hostTime)
-        let time = captureTimeline.normalize(hostTime: item.hostTime, sampleCount: samples.count)
+        let normalization = captureTimeline.normalize(
+            hostTime: item.hostTime,
+            sampleCount: samples.count
+        )
+        noteInputChunk(
+            .capture,
+            observed: item.hostTime,
+            normalization: normalization,
+            sampleCount: samples.count,
+            driftPPM: drift.capturePPM
+        )
+        let time = normalization.hostTime
         captureFrontierTime = time + Double(samples.count) / 48000
         let now = Self.currentHostSeconds()
-        for frame in captureFramer.append(samples: samples, hostTime: time) {
-            scheduler.hold(frame, arrivedAt: now)
+        let framed = captureFramer.append(samples: samples, hostTime: time)
+        if let discarded = framed.discarded {
+            noteFramerDiscard(.captureFramerDiscarded, discarded)
+        }
+        for frame in framed.frames {
+            if let drop = scheduler.hold(frame, arrivedAt: now) {
+                note(.event(.init(
+                    kind: .heldCaptureDropped,
+                    firstHostTime: drop.firstHostTime,
+                    lastHostTime: drop.lastHostTime,
+                    frameCount: drop.frameCount,
+                    epoch: epoch
+                )))
+            }
         }
         await releaseAndProcess()
     }
@@ -225,35 +251,15 @@ actor AecPump {
         if previousState == .active, scheduler.state == .recovering {
             recoveryResetPending = true
             reportedActive = false
+            note(.event(.init(kind: .recoveryEntered, hostTime: now, epoch: epoch)))
         }
         var becameActive = false
         for release in releases {
-            let capture = release.frame
             if release.processing == .silence {
-                silencedFrames += 1
-                output?.yield(AecFrame(
-                    samples: [Int16](repeating: 0, count: capture.samples.count),
-                    hostTime: capture.hostTime
-                ))
+                emitSilenced(release.frame)
                 continue
             }
-
-            let step = aligner.appendCapture(capture)
-            for render in step.render where !feedRender(render) {
-                logger.error("aec render feed failed")
-            }
-            var samples = capture.samples
-            let processed = samples.withUnsafeMutableBufferPointer { pointer -> Bool in
-                guard let base = pointer.baseAddress else { return false }
-                return bridge.processCaptureFrame(base)
-            }
-            guard processed else {
-                await finishCapture(error: CaptureError.aecProcessingFailed)
-                return
-            }
-            processedFrames += 1
-            logDriftIfNeeded()
-            output?.yield(AecFrame(samples: samples, hostTime: capture.hostTime))
+            guard await processAndEmit(release.frame) else { return }
             if !reportedActive {
                 reportedActive = true
                 becameActive = true
@@ -272,129 +278,24 @@ actor AecPump {
         }
     }
 
-    func finishCapture(error: (any Error)?) async {
-        if error is CancellationError {
-            shutdownGate.set()
-        }
-        guard started else {
-            output?.finish(throwing: error)
-            output = nil
-            return
-        }
-        // 終了drainは実行時timeoutと完全に分離する。残余rawは出力せず破棄し、
-        // waiting/recoveringからfailedへ遷移させない。
-        _ = scheduler.drainForShutdown()
-        // Logger の補間は escaping autoclosure でプロパティ直接参照が使えないため、
-        // ローカルへ写してから記録する。
-        let frames = processedFrames
-        let silenced = silencedFrames
-        let filled = aligner.filledSilenceFrames
-        let dropped = aligner.droppedRenderFrames
-        let leadDropped = aligner.droppedLeadRenderFrames
+    /// セッション先頭のストリーム間アンカー差の実測(#63 のパターン切り分け用)。
+    /// 0 近傍が期待値。大きな正負はタイムスタンプ意味差/ウォームアップ誤差のサイン。
+    private func logFirstRenderIfNeeded(at time: TimeInterval) {
+        guard !loggedFirstRender else { return }
+        loggedFirstRender = true
+        let deltaMs = Int(((captureFrontierTime ?? time) - time) * 1000)
         let held = scheduler.heldCount
-        let captureDiscarded = captureFramer.discardedSamples
-        let renderDiscarded = renderFramer.discardedSamples
-        let captureRebases = captureTimeline.rebases
-        let renderRebases = renderTimeline.rebases
-        let droppedHeld = scheduler.droppedHeldFrames
-        let discarded = scheduler.discardedFrames
-        let recoveries = scheduler.recoveryCount
         logger.notice(
             """
-            aec finished: frames=\(frames, privacy: .public) \
-            silenced=\(silenced, privacy: .public) \
-            filled=\(filled, privacy: .public) \
-            droppedRender=\(dropped, privacy: .public) \
-            leadDropped=\(leadDropped, privacy: .public) \
-            held=\(held, privacy: .public) \
-            droppedHeld=\(droppedHeld, privacy: .public) \
-            discardedRaw=\(discarded, privacy: .public) \
-            recoveries=\(recoveries, privacy: .public) \
-            capDiscard=\(captureDiscarded, privacy: .public) \
-            renDiscard=\(renderDiscarded, privacy: .public) \
-            capRebase=\(captureRebases, privacy: .public) \
-            renRebase=\(renderRebases, privacy: .public)
+            aec first render: capture frontier vs render start = \
+            \(deltaMs, privacy: .public)ms held=\(held, privacy: .public)
             """
         )
-        output?.finish(throwing: error)
-        output = nil
-        started = false
-        bridge.shutdown()
-    }
-}
-
-// MARK: - Helpers
-
-private extension AecPump {
-    func feedRender(_ frame: AecFrame) -> Bool {
-        frame.samples.withUnsafeBufferPointer { pointer -> Bool in
-            guard let base = pointer.baseAddress else { return false }
-            return bridge.processRenderFrame(base)
-        }
-    }
-
-    func resetForRecovery() {
-        bridge.reset()
-        aligner = AecAligner()
-        renderFramer = AecFramer()
-        renderTimeline = AecTimeline(rebaseThreshold: 0.05)
-        drift.resetRenderForRecovery()
-        reportedActive = false
-    }
-
-    func failForUnavailableReference(_ reason: AecFeedScheduler.FailureReason) async {
-        guard started, !reportedFailure, !shutdownGate.isSet, !Task.isCancelled else { return }
-        reportedFailure = true
-        await statusHandler(.failed(reason))
-        let error: CaptureError = switch reason {
-        case .referenceStartTimedOut:
-            .aecReferenceStartTimedOut
-        case .referenceRecoveryTimedOut:
-            .aecReferenceRecoveryTimedOut
-        }
-        await finishCapture(error: error)
-    }
-
-    /// 30秒(3000フレーム)ごとにドリフト計測値を残す(補正判断の材料)。
-    func logDriftIfNeeded() {
-        guard processedFrames % 3000 == 0 else { return }
-        let capture = drift.capturePPM.map { String(format: "%.1f", $0) } ?? "n/a"
-        let render = drift.renderPPM.map { String(format: "%.1f", $0) } ?? "n/a"
-        logger.notice(
-            """
-            aec drift ppm: capture=\(capture, privacy: .public) \
-            render=\(render, privacy: .public)
-            """
-        )
-    }
-
-    static func currentHostSeconds() -> TimeInterval {
-        AVAudioTime.seconds(forHostTime: mach_absolute_time())
-    }
-
-    static func int16Samples(of buffer: AVAudioPCMBuffer) -> [Int16]? {
-        guard let data = buffer.int16ChannelData else { return nil }
-        return Array(UnsafeBufferPointer(start: data[0], count: Int(buffer.frameLength)))
-    }
-}
-
-extension AecPump {
-    static func makeBuffer(from frame: AecFrame) -> AVAudioPCMBuffer? {
-        guard let format = aecFormat,
-              let buffer = AVAudioPCMBuffer(
-                  pcmFormat: format,
-                  frameCapacity: AVAudioFrameCount(frame.samples.count)
-              ),
-              let channel = buffer.int16ChannelData
-        else {
-            return nil
-        }
-        frame.samples.withUnsafeBufferPointer { source in
-            if let base = source.baseAddress {
-                channel[0].update(from: base, count: frame.samples.count)
-            }
-        }
-        buffer.frameLength = AVAudioFrameCount(frame.samples.count)
-        return buffer
+        note(.event(.init(
+            kind: .firstRender,
+            hostTime: time,
+            deltaMs: Double(deltaMs),
+            epoch: epoch
+        )))
     }
 }

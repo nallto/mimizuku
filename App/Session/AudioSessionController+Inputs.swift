@@ -95,7 +95,7 @@ extension AudioSessionController {
 
     /// AEC ポンプの実行時状態を MainActor の診断状態へ反映する。
     private func makeAecPump(generation: UInt64) -> AecPump {
-        AecPump { [weak self] status in
+        AecPump(diagnostics: aecDiagnosticsRecorder) { [weak self] status in
             self?.applyAecRuntimeStatus(status, generation: generation)
         }
     }

@@ -80,6 +80,8 @@ targets:
         excludes:
           - AecPump.swift
           - AecPump+Streams.swift
+          - AecPump+Support.swift
+          - AecPump+Diagnostics.swift
     settings:
       base:
         PRODUCT_NAME: aecprobe

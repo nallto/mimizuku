@@ -51,6 +51,89 @@ unified logging の実仕様に基づく使い分け。**`Logger.warning()` は�
 - 帰属表示(BSD-3-Clause + PATENTS)は `third_party/webrtc-audio-processing/` に同梱。
 - オフライン検証 CLI: `aecprobe <mic> <system> <out.wav>`(スキーム `aecprobe`)。実録音ペアを APM に通し、処理後 WAV と far-end 有音窓の平均抑圧量(dB)を出力する。
 
+## AEC 診断試行(#75 / ADR-0015)
+
+回り込み抑制の非決定性を切り分けるための開発者専用診断。同一試行の APM 実入出力(raw capture / render 参照 / 処理後 capture)と正規化前後の実測時刻をローカル保存し、オフラインで数値比較する。診断データはデバイス外へ出さず、リポジトリへコミットしない。
+
+### 記録(実機)
+
+1. 既存の Mimizuku を終了する(menu bar から Quit。二重起動は tap が競合する)。
+2. **揮発性の起動引数**付きで起動する(`defaults write` は使わない ―― 切り忘れで raw 録音が全セッション継続する事故を防ぐ。ADR-0015):
+
+   ```bash
+   open -n /path/to/Mimizuku.app --args -AecDiagnosticsEnabled YES
+   ```
+
+3. マイクを含むモードで録音を開始・終了する。試行ごとに `$XDG_STATE_HOME/mimizuku/aec-diagnostics/<yyyyMMdd-HHmmss>/`(既定 `~/.local/state/...`)へ音声 4 ファイル(capture-raw / capture-processed / render-received / render-fed)+ frames.jsonl + speech.jsonl + meta.json が保存される。約 1.4GB/時を消費する。 speech.jsonl の start/end はセッション原点(runStreams 開始)へシフト済みの値で、mic 解析原点(frames.jsonl の speechTimeSeconds)との対応は meta.json の speechStartOffsets(mic の値を引く)で取る。
+4. **controlled test では人間は発話しない**(近端発話を除外できない窓は far-end 単独と断定できず、残留比を抑圧量として解釈できない)。同一テスト音源をスピーカーで再生し、複数回試行して変動を比較する。
+
+### 解析
+
+```bash
+just aec-diag ~/.local/state/mimizuku/aec-diagnostics/<trial>
+```
+
+- 3 対を窓別に報告する: raw × render-received(捕捉クロック・参照信号)/ raw × render-fed(APM が見た参照系列。音声の順序は fedIndex(受付順)が正典で、capture との対応点は各 fed の hostTime から窓ごとに復元する)/ raw × processed(処理前後電力比)。
+- writer のバッファ溢れ・書き込み失敗があった試行(meta.json の valid=false)や CAF 長と JSONL が不整合の試行は、正式数値を出さず理由付きで拒否される ―― これは**診断 writer 自身の欠損であって製品挙動の異常ではない**。試行を破棄してやり直す。
+
+### 指標の読み方
+
+- **raw × render-received**: 捕捉した時点の参照そのもの(tap → 変換 → framer 後、aligner 介入前)と raw マイクの実時間比較。ここの delay は正規化 host time 上の相関ピークによる**有効エコー遅延の推定値**(音響伝搬に加え入出力バッファ・デバイス時刻・timeline 正規化を含む)。十分な有効窓があり、同一条件の複数試行で同じクラスタを形成した場合にだけ解釈する ―― 単発の推定値(特に相関が低いもの)を fixed delay 等へ投入しない。変動の読み方は分離する: **delay の変動**は音響条件・出力経路・入出力バッファ・時刻同期を疑う材料、**capture/render driftPPM の変動**は各デバイスのクロック・timestamp・timeline を疑う材料。条件を固定した複数試行でも変動が残る場合に、同期層の疑いが強まる。
+- **raw × render-fed**: aligner 介入(gap-fill 無音・lead/late/overflow 破棄)後に **APM が実際に受け付けた**参照との比較。received と一致しない分が aligner・給餌の影響。
+- **残留比**(raw × processed): `10·log10(P_raw / P_processed)` dB。大きいほど処理後の残留が少ない。ただし raw に近端発話・ノイズが含まれる窓では抑圧量を意味しない(**ERLE ではない**)。controlled test(人間は発話しない)の echo-dominant 窓に限って解釈する。残留比は APM 処理前後の**総電力差**であり、controlled test でもエコー除去量だけを表さない(ノイズ抑制など APM 全体の処理を含む)。APM 内部 ERLE との不一致は直ちに異常ではない。
+- **inputChunk の 3 指標の違い**: `timingDeltaMs` = 個々のコールバック到着の単発ジッタ(実測 − サンプルクロック予測)。`rebase` = 閾値超の不連続(本物の欠落・デバイス変更)で実測へ追従した回数。`driftPPM` = 長期のサンプルクロック進行レート差(蓄積量 ÷ 経過時間)。ジッタが大きくても drift が小さければクロックは健全。
+- **APM 統計**(erl / erle / delay / median / std / divergent / residual)は **APM 内部推定値**であり、実測の除去量・遅延そのものではない。CLI の遅延推定(実測)と一致しなくても直ちに不具合ではない ―― 大きく乖離し続ける場合に「APM が正しく収束していない」仮説の材料にする。delay median/std は初回取得後 1 秒集約へ切り替わる。
+- **「判定なし」の理由**は保守的な除外であり、多くは正常:
+
+  | reason | 意味 | 対応 |
+  | --- | --- | --- |
+  | windowTooShort / insufficientRenderContext | 窓長または解析用の前方参照文脈が足りない(epoch 端・開始端) | 正常な除外。試行を長くすれば減る |
+  | zeroSignal / renderTooQuiet | 無音・参照レベル不足 | テスト音源の音量・再生区間を見直す |
+  | lowCorrelation | 相関が立たない(回り込みが小さい・SNR 不足・近端ノイズ・無相関区間・参照不一致) | 頻発するなら音源レベル・距離と、参照とマイクの対応の両方を疑う |
+  | tiedPeaks | 周期信号で一意に決まらない | 音楽等の周期素材を避け、発話素材にする |
+  | boundaryPeak | ピークが探索境界(真の遅延が範囲外の可能性) | 全窓で出るなら実遅延が想定範囲外のサイン |
+
+### 原因切り分け
+
+| 観測 | 疑う層 |
+| --- | --- |
+| raw×received の delay が試行ごとに変動 | 音響条件・出力経路・入出力バッファ・時刻同期。条件を固定した複数試行でも変動するなら同期層(捕捉クロック・tap・timeline 正規化)の疑いが強まる |
+| capture / render の driftPPM が変動 | 各デバイスのクロック・timestamp・timeline 正規化 |
+| raw×received は安定、raw×fed だけ変動 | aligner・gap-fill・lead/late/held drop・recovery(frames.jsonl の event を突き合わせる) |
+| fed まで安定、残留比や APM 統計だけ変動 | APM の収束・参照レベル・音響条件 |
+| processed の残留は小さいのに Speech だけ誤認識 | Speech の認識条件(speech.jsonl と speechTimeSeconds で該当区間を特定し、capture-processed.caf の該当区間を試聴) |
+| valid=false | 診断 writer 自身の欠損(製品挙動ではない)。試行を破棄して再試行 |
+
+### 試験プロトコル(runbook)
+
+再現可能な比較のため、以下を**最初の計測時に確定して Issue #75 に記録し、以後の全試行で固定**する(実測に基づく具体値は捏造せず、複数試行のベースライン取得後に有用と確定したものだけを docs へ昇格させる)。
+
+- テスト音源: 発話を含む固定のファイル 1 つと再生区間(周期的な音楽は tiedPeaks になりやすいので避ける)。
+- 出力デバイス・システム音量・スピーカーとマイクの位置関係(距離を変えない)。
+- 1 試行の長さ(目安 60 秒以上)とウォームアップの扱い。注意: 「判定なし」は raw×render の相関条件(参照文脈不足・低相関・無音・周期信号)によるもので **APM の収束とは独立**。APM のウォームアップは processed の残留比・APM 統計の序盤区間として扱い、「判定なし」を収束待ちと解釈しない。
+- 試行回数: mic-only / both の各モードで最低 3 回(1 回の試行で判断しない)。
+- 試行間で変更してよい変数は **1 つだけ**。それ以外は固定する。
+- 記録は `just aec-diag` が末尾に出力する**試行サマリー行**(下記の列)を Issue #75 の表へそのまま貼る。delay は「estimate 窓の中央値 / estimate になった窓の割合」、driftPPM は capture / render の 2 列(両者は大きく異なり得る)、ERLE med は APM 内部 ERLE の中央値。「Speech 回り込み」だけは speech.jsonl を見て手動判定で埋める:
+
+  ```text
+  | trial | mode | received delay med/valid | fed delay med/valid | capture driftPPM | render driftPPM | 残留比 med | APM ERLE med | events | Speech回り込み |
+  ```
+
+### チューニング規律
+
+- **計測結果なしの固定 delay・ミュート・閾値調整はしない**(#75 の受け入れ条件)。同期・参照品質(raw×received / raw×fed)が安定するまで APM パラメータに触れない。
+- 1 回の試行だけで判断しない。変更前後は**同一条件で複数試行**して比較する。
+- 1 度に変更する変数は 1 つ。fixed delay・ミュート・閾値を変更した場合は、根拠(どの指標がどう変わったか)と前後比較を Issue へ残す。
+- 閾値の「良い/悪い」は実機ベースライン取得前に決め打ちしない。
+
+### 削除
+
+診断データの保持・削除は手動(自動ローテーションなし)。不要になったらディレクトリごと削除する:
+
+```bash
+rm -rf ~/.local/state/mimizuku/aec-diagnostics
+```
+
 ## コンテナ / devcontainer を使わない理由
 
 核となる作業は macOS ネイティブのフレームワーク(Speech、Core Audio、TCC、AppKit)を要する。これらは Linux コンテナの中ではビルドも検証もできないため、devcontainer は置かない。再現性は mise(ツール版数)+ ピン留めした `macos-26` ランナー・Xcode で担保し、コンテナには頼らない。

@@ -36,11 +36,35 @@ public struct AecFramer: Sendable {
         self.sampleRate = sampleRate
     }
 
+    /// 1 回の `append` の結果。切り出せたフレームと、不連続で破棄した持ち越し
+    /// (発生時のみ)を返す(#75 の診断対象 ―― 破棄を hostTime 付きで観測可能にする)。
+    public struct AppendResult: Sendable, Equatable {
+        public let frames: [AecFrame]
+        /// 破棄した持ち越し(先頭サンプルの時刻とサンプル数)。破棄がなければ nil。
+        public let discarded: DiscardedRemainder?
+
+        public init(frames: [AecFrame], discarded: DiscardedRemainder?) {
+            self.frames = frames
+            self.discarded = discarded
+        }
+    }
+
+    public struct DiscardedRemainder: Sendable, Equatable {
+        public let hostTime: TimeInterval
+        public let sampleCount: Int
+
+        public init(hostTime: TimeInterval, sampleCount: Int) {
+            self.hostTime = hostTime
+            self.sampleCount = sampleCount
+        }
+    }
+
     /// チャンクを追加し、切り出せた分のフレームを返す。
-    public mutating func append(samples: [Int16], hostTime: TimeInterval) -> [AecFrame] {
-        guard !samples.isEmpty else { return [] }
+    public mutating func append(samples: [Int16], hostTime: TimeInterval) -> AppendResult {
+        guard !samples.isEmpty else { return AppendResult(frames: [], discarded: nil) }
 
         var startTime = hostTime
+        var discarded: DiscardedRemainder?
         if remainder.isEmpty {
             remainderHostTime = hostTime
         } else {
@@ -49,6 +73,10 @@ public struct AecFramer: Sendable {
             if abs(hostTime - expected) > tolerance {
                 // 不連続: 持ち越しを破棄して新しい時刻から仕切り直す。
                 discardedSamples += remainder.count
+                discarded = DiscardedRemainder(
+                    hostTime: remainderHostTime,
+                    sampleCount: remainder.count
+                )
                 remainder.removeAll(keepingCapacity: true)
                 remainderHostTime = hostTime
             } else {
@@ -70,6 +98,6 @@ public struct AecFramer: Sendable {
             remainder.removeFirst(offset)
             remainderHostTime = startTime + Double(offset) / sampleRate
         }
-        return frames
+        return AppendResult(frames: frames, discarded: discarded)
     }
 }

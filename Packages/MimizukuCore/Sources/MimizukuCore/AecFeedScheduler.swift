@@ -51,6 +51,20 @@ public struct AecFeedScheduler: Sendable {
         }
     }
 
+    /// 保留上限超過で破棄した capture(#75 の診断対象 ―― 正式音源へ出ないまま
+    /// 失われるため、元 hostTime を保持して観測可能にする)。
+    public struct HeldOverflowDrop: Sendable, Equatable {
+        public let firstHostTime: TimeInterval
+        public let lastHostTime: TimeInterval
+        public let frameCount: Int
+
+        public init(firstHostTime: TimeInterval, lastHostTime: TimeInterval, frameCount: Int) {
+            self.firstHostTime = firstHostTime
+            self.lastHostTime = lastHostTime
+            self.frameCount = frameCount
+        }
+    }
+
     /// active 中に対応 render を待つ実時間。超過すると復旧待ちへ移る。
     public let holdTimeout: TimeInterval
     public let frameDuration: TimeInterval
@@ -151,17 +165,24 @@ public struct AecFeedScheduler: Sendable {
         }
     }
 
-    public mutating func hold(_ frame: AecFrame, arrivedAt now: TimeInterval) {
+    @discardableResult
+    public mutating func hold(_ frame: AecFrame, arrivedAt now: TimeInterval) -> HeldOverflowDrop? {
         if startupBeganAt == nil {
             startupBeganAt = now
         }
         held.append(Held(frame: frame, arrivedAt: now))
-        if held.count > maxHeldFrames {
-            let overflow = held.count - maxHeldFrames
-            droppedHeldFrames += overflow
-            discardedFrames += overflow
-            held.removeFirst(overflow)
-        }
+        guard held.count > maxHeldFrames else { return nil }
+        let overflow = held.count - maxHeldFrames
+        droppedHeldFrames += overflow
+        discardedFrames += overflow
+        let dropped = held.prefix(overflow)
+        let drop = HeldOverflowDrop(
+            firstHostTime: dropped.first?.frame.hostTime ?? frame.hostTime,
+            lastHostTime: dropped.last?.frame.hostTime ?? frame.hostTime,
+            frameCount: overflow
+        )
+        held.removeFirst(overflow)
+        return drop
     }
 
     /// 現在処理できる capture を解放する。開始・復旧待ちと failed の capture は

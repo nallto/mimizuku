@@ -78,6 +78,7 @@ AI のメモリ(auto memory / `CLAUDE.local.md`)は個人ローカルであり�
 | --- | --- |
 | 個人の揮発メモ・個人設定 | `CLAUDE.local.md` / auto memory(コミットしない) |
 | チームの人間・AI 向け規約 | 本ファイル |
+| UI/UXの原則・視覚言語 | `docs/DESIGN.md`、画面・操作仕様は`docs/design/` |
 | 設計判断の理由 | `docs/adr/`(製品)/ `docs/adr/governance/`(プロセス) |
 | ドメインの罠・落とし穴 | `docs/domain-pitfalls.md` |
 | 流動的なタスク・調査ログ | GitHub Issues |
@@ -109,6 +110,6 @@ AI のメモリ(auto memory / `CLAUDE.local.md`)は個人ローカルであり�
 - 非自明な変更は、着手前に計画(対象・手順・検証方法・トレードオフ)を提示し、承認を得てから実行する。手順: `.agents/skills/plan-execute-verify/SKILL.md`。
 - 計画の承認後は合意した範囲を進め、変更確認と検証結果を示してからコミットする。計画からの逸脱、PRマージ、ブランチ削除、外部公開などの不可逆・外向き操作は、直前に対象と状態を示して明示承認を得る。
 - 利用者が完了条件、時間、試行回数などの上限を指定した場合はタスクの停止条件として扱う。指定の有無によって上記の計画・検証・承認手順を切り替えない。
-- UI(`App/UI/`配下や新規ビュー)に触れる作業は、着手前に `.agents/skills/macos-ui-design/SKILL.md`を読む(HIGと流体インターフェース原則の遵守)。
+- UI(`App/UI/`配下や新規ビュー)に触れる作業は、着手前に `.agents/skills/macos-ui-design/SKILL.md`を入口として`docs/DESIGN.md`と対象の`docs/design/`画面・操作仕様を読む。未登録Agentも`AGENTS.md`→共通skill→デザイン正典の同じ経路を使う。
 - 規約・設定・docs に改善余地を見つけたら、勝手に変えず提案する。
 - 秘密情報(`.env`・鍵・トークン)は読まない・書かない・コミットしない(permissions / hooks / CI gitleaks でも強制されるが、規律としても守る)。

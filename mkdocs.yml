@@ -33,6 +33,10 @@ markdown_extensions:
 
 nav:
   - ホーム: index.md
+  - UI/UXデザイン:
+      - デザイン正典: DESIGN.md
+      - メインウィンドウ: design/main-window.md
+      - インタラクションパターン: design/interaction-patterns.md
   - アーキテクチャ: architecture.md
   - ドメインの落とし穴: domain-pitfalls.md
   - 開発ガイド: development.md

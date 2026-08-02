@@ -8,6 +8,9 @@ Mimizuku は macOS のメニューバー常駐アプリ。マイクとシステ�
 
 ### 設計・仕様
 
+- [UI/UXデザイン](./DESIGN.md) — 体験原則、視覚言語、アクセシビリティの正典
+- [メインウィンドウ仕様](./design/main-window.md) — S6〜S12の3領域と導入境界
+- [UIインタラクションパターン](./design/interaction-patterns.md) — 状態、操作、キーボード、VoiceOver
 - [アーキテクチャ](./architecture.md) — コンポーネントとデータフロー
 - [ドメインの落とし穴](./domain-pitfalls.md) — 検証済みの Core Audio / Speech / CI の罠
 - [ADR](adr/README.md) — なぜその設計にしたか(製品 + 統治)

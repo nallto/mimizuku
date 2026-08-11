@@ -20,6 +20,7 @@
 | [0005](./0005-product-scope-expansion.md) | プロダクトスコープ拡張、実装計画を「記録先行」6 フェーズへ再編 | Accepted |
 | [0006](./0006-recording-format-and-layout.md) | 録音は CAF(PCM)+ 停止時 AAC 変換、ストリーム毎 2 ファイル | Accepted |
 | [0007](./0007-session-metadata-storage.md) | セッションの正典はJSONスナップショット、処理中はJSONLジャーナルにする | Accepted |
+| [0008](./0008-three-pane-navigation.md) | 3ペインUIは標準SwiftUI構成、activation policyは動的切替 | Accepted |
 | [0013](./0013-echo-cancellation-webrtc-aec3.md) | エコーキャンセルは WebRTC AEC3、処理後音声を録音・文字起こしに使う | Superseded by ADR-0014 |
 | [0014](./0014-aec-processed-microphone-fail-closed.md) | AEC処理済みマイクだけを正式音源とし、参照喪失時はfail-closedにする | Accepted |
 | [0015](./0015-aec-diagnostics-storage.md) | AEC診断データは$XDG_STATE_HOMEへ分離し、揮発性起動引数で有効化する | Accepted |

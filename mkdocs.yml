@@ -52,6 +52,7 @@ nav:
       - ADR-0005 プロダクトスコープ拡張: adr/0005-product-scope-expansion.md
       - ADR-0006 録音形式と保存レイアウト: adr/0006-recording-format-and-layout.md
       - ADR-0007 セッションデータ保存: adr/0007-session-metadata-storage.md
+      - ADR-0008 3ペインUIと前面化: adr/0008-three-pane-navigation.md
       - ADR-0013 エコーキャンセル(WebRTC AEC3): adr/0013-echo-cancellation-webrtc-aec3.md
       - ADR-0014 AEC処理済みマイクのfail-closed: adr/0014-aec-processed-microphone-fail-closed.md
       - ADR-0015 AEC診断データの保存: adr/0015-aec-diagnostics-storage.md

@@ -96,10 +96,9 @@ S5 以降、S9〜S13 は相互にほぼ独立で並行着手できる。1 スラ
 
 ### D3 — 3 ペイン UI のナビゲーション構成(S6 前)→ ADR-0008
 
-- (a) `NavigationSplitView`(sidebar + detail)+ `.inspector` — macOS 標準の 3 ペイン。折りたたみ・表示切替・状態保存が標準で付く。右ペイン=inspector のセマンティクスが要件と一致(有力)。
-- (b) 3 カラム `NavigationSplitView` — content 列は「選択リスト」の意味論で、中央=波形+文字起こしの用途とずれる。
-- (c) `HSplitView` 手組み — 自由度最大だが標準挙動を自作する負担。
-- 併せて `MenuBarExtra` + `Window` シーン共存、`LSUIElement` 下でのウィンドウ前面化の挙動を確認する。
+- **決定済み(#30 / ADR-0008)**: `NavigationSplitView`(sidebar + detail)+`.inspector`を標準の`Window`へ直接配置する。独自の幅監視と自動折りたたみは導入せず、補助ペインは標準トグルで表示切替する。
+- 初期幅はsidebarが`160 / 240 / 320pt`、中央が最小`480pt`、inspectorが`240 / 360 / 600pt`。既定ウィンドウサイズは1200×680ptとする。
+- 作業ウィンドウを開くときだけactivation policyを`.regular`へ切り替え、最後の対象ウィンドウを閉じたら`.accessory`へ戻す。`LSUIElement=true`は維持する。
 
 ### D4 — 波形の生成・描画方式(S8 前)→ ADR-0009
 
@@ -201,7 +200,7 @@ UI作業は着手前に`.agents/skills/macos-ui-design/SKILL.md`、[`docs/DESIGN
 
 #### S6 — 3 ペイン骨格
 
-D3 の決定に従う構成(候補: `NavigationSplitView` + `.inspector`)。左=セッション一覧(名前・日時・長さ)、中央=保存済み文字起こしの閲覧(読み取り専用)、右=空の inspector プレースホルダ。メニューバーから「メインウィンドウを開く」。`MenuBarExtra` + `Window` シーンの共存(`LSUIElement` 下の前面化)を確認。
+D3／ADR-0008に従い、標準の`NavigationSplitView` + `.inspector`を`Window`へ直接配置する。左=セッション一覧(名前・日時・長さ)、中央=保存済み文字起こしの閲覧(読み取り専用)、右=空の inspector プレースホルダ。メニューバーから「メインウィンドウを開く」。`MenuBarExtra` + `Window`シーンの共存と、`LSUIElement`を維持した動的なactivation policy切替を実装する。
 
 受け入れ: 過去セッションを一覧から選んで文字起こしを読める。
 

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Explain Code"
+  short_description: "コード変更と設計を根拠付きの図とローカルHTMLで詳しく説明"
+  default_prompt: "Use $explain-code to explain this code change with the smallest useful visual and evidence links."

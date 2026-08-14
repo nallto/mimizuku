@@ -12,6 +12,7 @@ struct MimizukuApp: App {
     /// アプリ全体で 1 つのセッション状態を共有する。
     @State private var controller = AudioSessionController()
 
+    private static let mainWindowID = "main"
     private static let logWindowID = "live-log"
     private static let diagnosticsWindowID = "diagnostics"
 
@@ -20,19 +21,36 @@ struct MimizukuApp: App {
         MenuBarExtra("Mimizuku", systemImage: menuSymbol) {
             MenuContent(
                 controller: controller,
+                mainWindowID: Self.mainWindowID,
                 logWindowID: Self.logWindowID,
                 diagnosticsWindowID: Self.diagnosticsWindowID
             )
         }
 
+        Window("Mimizuku", id: Self.mainWindowID) {
+            MainWindowView(store: controller.store)
+                .workWindowLifecycle(id: Self.mainWindowID)
+        }
+        .defaultSize(
+            width: MainWindowMetrics.defaultWidth,
+            height: MainWindowMetrics.defaultHeight
+        )
+        .windowResizability(.contentMinSize)
+        .commands {
+            SidebarCommands()
+            InspectorCommands()
+        }
+
         // アセットのバックグラウンド導入は controller の init で起動時に開始する。
         Window("ライブ議事ログ", id: Self.logWindowID) {
             LiveLogView(controller: controller)
+                .workWindowLifecycle(id: Self.logWindowID)
         }
 
         // 権限診断(#37): マイク / システム音声 / 音声モデルの状態と修正アクション。
         Window("権限診断", id: Self.diagnosticsWindowID) {
             DiagnosticsView(controller: controller)
+                .workWindowLifecycle(id: Self.diagnosticsWindowID)
         }
     }
 
@@ -48,6 +66,7 @@ struct MimizukuApp: App {
 /// メニューバーのドロップダウン内容。開始/停止・入力ソース・状態・ウィンドウ表示・終了。
 private struct MenuContent: View {
     @Bindable var controller: AudioSessionController
+    let mainWindowID: String
     let logWindowID: String
     let diagnosticsWindowID: String
 
@@ -75,13 +94,17 @@ private struct MenuContent: View {
 
         Divider()
 
+        Button("メインウィンドウを開く") {
+            WorkWindowActivation.open(id: mainWindowID, using: openWindow)
+        }
+
         Button("議事ログを開く") {
-            openWindow(id: logWindowID)
+            WorkWindowActivation.open(id: logWindowID, using: openWindow)
         }
         .keyboardShortcut("l")
 
         Button("権限診断を開く") {
-            openWindow(id: diagnosticsWindowID)
+            WorkWindowActivation.open(id: diagnosticsWindowID, using: openWindow)
         }
         .keyboardShortcut("d")
 

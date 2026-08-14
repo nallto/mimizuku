@@ -1,0 +1,561 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; img-src data:; base-uri 'none'; form-action 'none'; object-src 'none'" />
+    <title>コード説明資料</title>
+    <style>
+      :root {
+        color-scheme: light;
+        --paper: #f1f4f6;
+        --surface: #fbfdff;
+        --surface-muted: #e5ebef;
+        --ink: #202b38;
+        --muted: #526273;
+        --soft: #738395;
+        --rule: #c5d0d8;
+        --accent: #b84e68;
+        --accent-soft: #f6e2e8;
+        --runtime: #23705f;
+        --runtime-soft: #ddf0ea;
+        --inferred: #84651c;
+        --inferred-soft: #f3ecd9;
+        --link: #315f9b;
+        --font-sans: -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Yu Gothic", "Segoe UI", sans-serif;
+        --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html {
+        background: var(--paper);
+      }
+
+      body {
+        margin: 0;
+        color: var(--ink);
+        background: var(--paper);
+        font-family: var(--font-sans);
+        font-size: 16px;
+        line-height: 1.65;
+      }
+
+      main {
+        width: min(1180px, calc(100% - 40px));
+        margin: 0 auto;
+        padding: 56px 0 64px;
+      }
+
+      .page-header {
+        max-width: 1180px;
+        margin-bottom: 36px;
+      }
+
+      .eyebrow,
+      .section-label,
+      .node-tag,
+      .edge-label,
+      code {
+        font-family: var(--font-mono);
+      }
+
+      .eyebrow,
+      .section-label {
+        margin: 0 0 8px;
+        color: var(--muted);
+        font-size: 12px;
+        font-weight: 650;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+      }
+
+      h1 {
+        display: flex;
+        flex-wrap: wrap;
+        margin: 0;
+        max-width: 100%;
+        text-wrap: wrap;
+        line-break: strict;
+        font-family: var(--font-sans);
+        font-size: clamp(28px, 4vw, 44px);
+        font-weight: 720;
+        letter-spacing: -0.035em;
+        line-height: 1.12;
+      }
+
+      .title-phrase {
+        display: inline-block;
+        white-space: nowrap;
+      }
+
+      .lede {
+        width: 100%;
+        max-width: none;
+        margin: 16px 0 0;
+        overflow-wrap: anywhere;
+        text-wrap: wrap;
+        color: var(--muted);
+        font-size: 18px;
+        line-height: 1.7;
+      }
+
+      .diagram-panel {
+        margin-top: 24px;
+        padding: 24px;
+        overflow: hidden;
+        background: var(--surface-muted);
+        border: 1px solid var(--rule);
+        border-radius: 8px;
+      }
+
+      .diagram-heading {
+        display: flex;
+        gap: 16px;
+        align-items: baseline;
+        justify-content: space-between;
+        margin-bottom: 16px;
+      }
+
+      .diagram-heading h2 {
+        margin: 0;
+        font-size: 20px;
+        line-height: 1.35;
+      }
+
+      .diagram-note {
+        margin: 0;
+        color: var(--muted);
+        font-size: 14px;
+      }
+
+      .diagram-scroll {
+        overflow-x: auto;
+        background: var(--surface);
+        border: 1px solid var(--rule);
+      }
+
+      .explain-diagram {
+        display: block;
+        width: 100%;
+        min-width: 820px;
+        height: auto;
+      }
+
+      .diagram-edge {
+        fill: none;
+        stroke: var(--muted);
+        stroke-width: 2;
+        marker-end: url(#arrow);
+      }
+
+      .diagram-edge.is-focal {
+        stroke: var(--accent);
+        marker-end: url(#arrow-accent);
+      }
+
+      .diagram-node .node-box {
+        fill: var(--surface);
+        stroke: var(--ink);
+        stroke-width: 1.5;
+      }
+
+      .diagram-node.is-context .node-box {
+        fill: var(--surface-muted);
+        stroke: var(--soft);
+      }
+
+      .diagram-node.is-focal .node-box {
+        fill: var(--accent-soft);
+        stroke: var(--accent);
+        stroke-width: 2;
+      }
+
+      .node-name {
+        fill: var(--ink);
+        font-family: var(--font-sans);
+        font-size: 16px;
+        font-weight: 650;
+      }
+
+      .node-detail,
+      .node-tag,
+      .edge-label {
+        fill: var(--muted);
+        font-family: var(--font-mono);
+        font-size: 12px;
+      }
+
+      .node-tag {
+        font-size: 10px;
+        font-weight: 650;
+        letter-spacing: 0.08em;
+      }
+
+      .edge-mask {
+        fill: var(--surface);
+      }
+
+      .diagram-legend {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 16px 24px;
+        margin: 16px 0 0;
+        padding: 14px 0 0;
+        border-top: 1px solid var(--rule);
+        color: var(--muted);
+        font-size: 13px;
+      }
+
+      .legend-item {
+        display: inline-flex;
+        gap: 8px;
+        align-items: center;
+      }
+
+      .legend-mark {
+        width: 18px;
+        height: 10px;
+        background: var(--surface);
+        border: 1px solid var(--ink);
+      }
+
+      .legend-mark.changed {
+        background: var(--accent-soft);
+        border-color: var(--accent);
+      }
+
+      .legend-mark.runtime {
+        background: var(--runtime-soft);
+        border-color: var(--runtime);
+      }
+
+      .evidence-section,
+      .change-appendix,
+      .unknowns {
+        margin-top: 36px;
+      }
+
+      .evidence-section h2,
+      .change-appendix h2,
+      .unknowns h2 {
+        margin: 0 0 16px;
+        font-size: 22px;
+      }
+
+      .evidence-grid {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 16px;
+      }
+
+      .evidence-card {
+        min-width: 0;
+        padding: 20px;
+        background: var(--surface);
+        border: 1px solid var(--rule);
+        border-radius: 6px;
+      }
+
+      .evidence-card h3 {
+        margin: 0 0 8px;
+        font-size: 16px;
+      }
+
+      .evidence-card p {
+        margin: 0;
+        color: var(--muted);
+      }
+
+      .evidence-card a {
+        color: var(--link);
+        overflow-wrap: anywhere;
+      }
+
+      .evidence-list {
+        display: grid !important;
+        grid-template-columns: 1fr !important;
+        gap: 16px;
+      }
+
+      .evidence-row {
+        width: 100% !important;
+        min-width: 0;
+        padding: 20px !important;
+        background: var(--surface) !important;
+        border: 1px solid var(--rule) !important;
+        border-radius: 6px !important;
+      }
+
+      .evidence-row h3 {
+        margin: 0 0 8px;
+        font-size: 16px;
+      }
+
+      .evidence-row p {
+        margin: 0;
+        color: var(--muted);
+      }
+
+      .evidence-row a {
+        color: var(--link);
+        overflow-wrap: anywhere;
+      }
+
+      .evidence-level {
+        display: inline-block;
+        margin-bottom: 10px;
+        padding: 2px 6px;
+        font-family: var(--font-mono);
+        font-size: 11px;
+        border: 1px solid currentcolor;
+        border-radius: 3px;
+      }
+
+      .evidence-level.static {
+        color: var(--link);
+      }
+
+      .evidence-level.runtime {
+        color: var(--runtime);
+        background: var(--runtime-soft);
+      }
+
+      .evidence-level.inferred {
+        color: var(--inferred);
+        background: var(--inferred-soft);
+      }
+
+      .unknowns {
+        padding: 20px 24px;
+        background: var(--inferred-soft);
+        border-left: 4px solid var(--inferred);
+      }
+
+      .unknowns p {
+        margin: 0;
+        color: var(--muted);
+      }
+
+      .change-appendix {
+        margin-top: 44px;
+        padding-top: 28px;
+        border-top: 1px solid var(--rule);
+      }
+
+      .change-section {
+        display: grid !important;
+        grid-template-columns: 1fr !important;
+        gap: 12px;
+        width: 100% !important;
+        min-width: 0;
+        padding: 20px !important;
+        background: var(--surface) !important;
+        border: 1px solid var(--rule) !important;
+        border-radius: 6px !important;
+      }
+
+      .change-section + .change-section {
+        margin-top: 16px;
+      }
+
+      .change-section h2 {
+        margin: 0;
+        font-size: 22px;
+      }
+
+      .change-file-list,
+      .verification-list {
+        margin: 0;
+        padding-left: 20px;
+        color: var(--muted);
+      }
+
+      .change-file-list code,
+      .diff-summary,
+      .diff-excerpt {
+        overflow-wrap: anywhere;
+      }
+
+      .diff-summary {
+        margin: 0;
+        color: var(--muted);
+        font-family: var(--font-mono);
+      }
+
+      .diff-excerpt {
+        margin: 16px 0 0;
+        padding: 16px;
+        overflow-x: auto;
+        color: var(--ink);
+        background: var(--surface-muted);
+        border: 1px solid var(--rule);
+        font-family: var(--font-mono);
+        font-size: 13px;
+        line-height: 1.55;
+        white-space: pre;
+      }
+
+      footer {
+        display: flex;
+        gap: 16px;
+        justify-content: space-between;
+        margin-top: 40px;
+        padding-top: 16px;
+        color: var(--soft);
+        font-family: var(--font-mono);
+        font-size: 12px;
+        border-top: 1px solid var(--rule);
+      }
+
+      @media (max-width: 760px) {
+        main {
+          width: min(1180px, calc(100% - 24px));
+          padding-top: 32px;
+        }
+
+        .diagram-panel {
+          margin-right: -12px;
+          margin-left: -12px;
+          padding: 16px 12px;
+          border-right: 0;
+          border-left: 0;
+          border-radius: 0;
+        }
+
+        .diagram-heading,
+        footer {
+          align-items: flex-start;
+          flex-direction: column;
+        }
+
+        .evidence-grid {
+          grid-template-columns: 1fr;
+        }
+      }
+
+      @media print {
+        body {
+          background: #ffffff;
+        }
+
+        main {
+          width: 100%;
+          padding: 0;
+        }
+
+        .diagram-scroll {
+          overflow: visible;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main data-explain-code="1" data-explanation-mode="change" data-template-sample="1">
+      <header class="page-header">
+        <p class="eyebrow">変更モード · Change map</p>
+        <h1><span class="title-phrase">入口から</span><span class="title-phrase">変更点と結果をたどる</span></h1>
+        <p class="lede">主図へ問いに直接関係する経路だけを置き、詳細な根拠と未確認点は図の後へ分離する。</p>
+      </header>
+
+      <section class="diagram-panel" aria-labelledby="primary-diagram-heading">
+        <div class="diagram-heading">
+          <h2 id="primary-diagram-heading">主要な経路</h2>
+          <p class="diagram-note">静的に確認した関係を表示</p>
+        </div>
+        <div class="diagram-scroll">
+          <svg class="explain-diagram" data-diagram-type="change-map" viewBox="0 0 1000 620" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="primary-title primary-desc">
+            <title id="primary-title">入口、変更対象、結果の関係</title>
+            <desc id="primary-desc">左の入口から中央の変更対象を経由し、右の結果へ到達する変更マップ。</desc>
+            <defs>
+              <marker id="arrow" markerWidth="10" markerHeight="8" refX="9" refY="4" orient="auto"><path d="M 0 0 L 10 4 L 0 8 Z" fill="#526273" /></marker>
+              <marker id="arrow-accent" markerWidth="10" markerHeight="8" refX="9" refY="4" orient="auto"><path d="M 0 0 L 10 4 L 0 8 Z" fill="#b84e68" /></marker>
+            </defs>
+            <rect width="1000" height="620" fill="#fbfdff" />
+
+            <path class="diagram-edge is-focal" d="M 280 310 H 448" />
+            <path class="diagram-edge" d="M 672 310 H 840" />
+
+            <g class="diagram-node is-context">
+              <rect class="node-box" x="80" y="248" width="200" height="124" rx="6" />
+              <text class="node-tag" x="104" y="276">ENTRY</text>
+              <text class="node-name" x="104" y="316">Entry point</text>
+              <text class="node-detail" x="104" y="344">request / event</text>
+            </g>
+
+            <g class="diagram-node is-focal is-changed">
+              <rect class="node-box" x="448" y="232" width="224" height="156" rx="6" />
+              <text class="node-tag" x="472" y="260">[変更] FOCAL</text>
+              <text class="node-name" x="472" y="308">Changed symbol</text>
+              <text class="node-detail" x="472" y="336">responsibility</text>
+            </g>
+
+            <g class="diagram-node">
+              <rect class="node-box" x="840" y="248" width="120" height="124" rx="6" />
+              <text class="node-tag" x="864" y="276">RESULT</text>
+              <text class="node-name" x="864" y="316">Result</text>
+              <text class="node-detail" x="864" y="344">state / output</text>
+            </g>
+          </svg>
+        </div>
+        <div class="diagram-legend" aria-label="図の凡例">
+          <span class="legend-item"><span class="legend-mark changed"></span>変更・主題</span>
+          <span class="legend-item"><span class="legend-mark"></span>静的確認</span>
+          <span class="legend-item"><span class="legend-mark runtime"></span>runtime確認</span>
+        </div>
+      </section>
+
+      <section class="evidence-section" aria-labelledby="evidence-heading">
+        <p class="section-label">Evidence</p>
+        <h2 id="evidence-heading">根拠</h2>
+        <div class="evidence-list">
+          <article class="evidence-row">
+            <div><span class="evidence-level static">静的確認</span><h3>コード上の関係</h3></div>
+            <p>定義、call site、登録処理など、静的に確認した一次情報を記載する。</p>
+          </article>
+          <article class="evidence-row">
+            <div><span class="evidence-level runtime">runtime確認</span><h3>実行結果</h3></div>
+            <p>test、trace、log、計測など、実際に観測した範囲だけを記載する。</p>
+          </article>
+          <article class="evidence-row">
+            <div><span class="evidence-level inferred">推定・未確認</span><h3>推定の境界</h3></div>
+            <p>framework挙動や未計測の順序など、推定理由と未確認点を記載する。</p>
+          </article>
+        </div>
+      </section>
+
+      <aside class="unknowns" aria-labelledby="unknowns-heading">
+        <h2 id="unknowns-heading">未確認点</h2>
+        <p>runtimeで確認していない経路や、動的dispatchによって変わり得る部分を記載する。未確認点がなければこのasideを削除する。</p>
+      </aside>
+
+      <section class="change-appendix" aria-label="変更補足">
+        <p class="section-label">Change appendix</p>
+        <section class="change-section change-files">
+          <h2>変更ファイル</h2>
+          <div><ul class="change-file-list"><li><code>path/to/Changed.swift</code> — 変更した責務</li></ul></div>
+        </section>
+        <section class="change-section diff-overview">
+          <h2>差分概要</h2>
+          <div><p class="diff-summary">1 file changed, 12 insertions(+), 3 deletions(-)</p></div>
+        </section>
+        <section class="change-section diff-details">
+          <h2>重要な差分</h2>
+          <div><pre class="diff-excerpt"><code>+ focusedChange()
+- previousBehavior()</code></pre></div>
+        </section>
+        <section class="change-section verification-results">
+          <h2>検証結果</h2>
+          <div><ul class="verification-list"><li><code>just check</code> — green</li></ul></div>
+        </section>
+      </section>
+
+      <footer>
+        <span>explain-code · local artifact</span>
+        <span>standalone · no network · no script</span>
+      </footer>
+    </main>
+  </body>
+</html>

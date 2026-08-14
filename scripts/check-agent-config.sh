@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Agent共通skillと環境別アダプター、共通hookの構成を検証する。
+# Agent共通skill、製品別instructions・custom agent、共通hookの構成を検証する。
 set -euo pipefail
 
 repo_root=$(git rev-parse --show-toplevel)
@@ -10,20 +10,23 @@ fail() {
   exit 1
 }
 
-skill_files=()
+frontmatter_files=()
 while IFS= read -r -d '' skill_file; do
-  skill_files+=("$skill_file")
+  frontmatter_files+=("$skill_file")
 done < <(find .agents/skills .claude/skills -name SKILL.md -print0)
+while IFS= read -r -d '' agent_file; do
+  frontmatter_files+=("$agent_file")
+done < <(find .github/agents -name '*.agent.md' -print0)
 
 ruby_bin=${AGENT_CONFIG_RUBY_BIN:-/usr/bin/ruby}
 [[ -x $ruby_bin ]] ||
   fail "YAML frontmatter検証に必要な${ruby_bin}がない"
-"$ruby_bin" scripts/check-skill-frontmatter.rb "${skill_files[@]}"
+"$ruby_bin" scripts/check-skill-frontmatter.rb "${frontmatter_files[@]}"
 
 registry=.agents/integrations.json
 jq -e '
   . as $root |
-  $root.schemaVersion == 1 and
+  $root.schemaVersion == 2 and
   ($root.fallback.instructions | type == "string") and
   ($root.fallback.skills | type == "string") and
   ($root.agents | (type == "array" and length > 0)) and
@@ -31,6 +34,13 @@ jq -e '
   all(
     $root.agents[];
     (.id | type == "string" and length > 0) and
+    (.instructions.path | type == "string" and length > 0) and
+    (.instructions.mode == "native" or .instructions.mode == "adapter") and
+    (if .instructions.mode == "adapter" then
+      (.instructions.source | type == "string" and length > 0)
+    else
+      (.instructions.source? == null)
+    end) and
     (.skills.path | type == "string" and length > 0) and
     (.skills.mode == "native" or .skills.mode == "adapter" or .skills.mode == "instructions") and
     ((.hooks.preToolUseConfig? == null) or
@@ -57,6 +67,32 @@ grep -Fq "@$fallback_instructions" CLAUDE.md ||
   fail "CLAUDE.md: ${fallback_instructions}をimportしていない"
 grep -Fq "Agent worktreeと作業ファイル" docs/development.md ||
   fail "docs/development.md: Agent worktreeと作業ファイルの手順がない"
+
+while IFS=$'\t' read -r agent_id instructions_mode instructions_path instructions_source; do
+  [[ -f $instructions_path ]] ||
+    fail "$agent_id: instructions fileが存在しない"
+
+  case "$instructions_mode" in
+    native)
+      [[ $instructions_path == "$fallback_instructions" ]] ||
+        fail "$agent_id: native instructionsの正典がfallbackと異なる"
+      ;;
+    adapter)
+      [[ -f $instructions_source ]] ||
+        fail "$agent_id: instructions sourceが存在しない"
+      [[ $instructions_source == "$fallback_instructions" ]] ||
+        fail "$agent_id: instructions sourceがfallbackと異なる"
+      grep -Fq "$instructions_source" "$instructions_path" ||
+        fail "$instructions_path: $instructions_sourceを参照していない"
+      ;;
+  esac
+done < <(
+  jq -r '
+    .agents[]
+    | [.id, .instructions.mode, .instructions.path, (.instructions.source // "")]
+    | @tsv
+  ' "$registry"
+)
 
 for ignored_path in \
   local/worktrees/agent-config-probe \
@@ -120,8 +156,35 @@ done
 grep -Fq "$fallback_skills/verify/references/verifier.md" .claude/agents/verifier.md ||
   fail ".claude/agents/verifier.md: 共通検証基準を参照していない"
 
+copilot_instructions=.github/copilot-instructions.md
+copilot_hook=.github/hooks/mimizuku-policy.json
+copilot_verifier=.github/agents/verifier.agent.md
+[[ $(jq -r '.agents[] | select(.id == "github-copilot") | .skills.mode' "$registry") == native ]] ||
+  fail "github-copilot: 共通skillをnative探索していない"
+[[ $(jq -r '.agents[] | select(.id == "github-copilot") | .skills.path' "$registry") == "$fallback_skills" ]] ||
+  fail "github-copilot: native skillの正典がfallbackと異なる"
+grep -Fq "@../$fallback_instructions" "$copilot_instructions" ||
+  fail "$copilot_instructions: CLI用の$fallback_instructions importがない"
+grep -Fq "$fallback_skills/*/SKILL.md" "$copilot_instructions" ||
+  fail "$copilot_instructions: import非対応surface向けの共通skill参照がない"
+grep -Fq "$fallback_skills/verify/references/verifier.md" "$copilot_verifier" ||
+  fail "$copilot_verifier: 共通検証基準を参照していない"
+grep -Eq '^tools: \[read, search, execute\]$' "$copilot_verifier" ||
+  fail "$copilot_verifier: 読み取り専用tool構成が不正"
+
 jq empty .claude/settings.json
 jq empty .codex/hooks.json
+[[ -f $copilot_hook ]] ||
+  fail "github-copilot: PreToolUse設定が存在しない"
+jq -e '
+  .version == 1 and
+  (.hooks.PreToolUse | type == "array" and length == 1) and
+  .hooks.PreToolUse[0].matcher == "Bash" and
+  .hooks.PreToolUse[0].type == "command" and
+  (.hooks.PreToolUse[0].bash | type == "string" and length > 0) and
+  .hooks.PreToolUse[0].timeoutSec == 10
+' "$copilot_hook" >/dev/null ||
+  fail "$copilot_hook: Copilot PreToolUse hook形式が不正"
 
 while IFS=$'\t' read -r agent_id hook_config; do
   [[ -f $hook_config ]] ||
@@ -158,7 +221,8 @@ run_hook_case() {
 
   set +e
   output=$(
-    jq -n --arg command "$command" '{tool_input: {command: $command}}' |
+    jq -n --arg command "$command" \
+      '{hook_event_name: "PreToolUse", tool_name: "Bash", tool_input: {command: $command}}' |
       bash scripts/agent-hooks/protect-command.sh 2>&1
   )
   actual_status=$?
@@ -176,6 +240,7 @@ run_hook_case "安全なコマンド" 0 "git status --short"
 run_hook_case "force push" 2 "git push --force origin topic"
 run_hook_case "main直接push" 2 "git push origin HEAD:main"
 run_hook_case "hook回避" 2 "git commit --no-verify"
+run_hook_case "dry-runでのhook回避" 2 "git commit --dry-run --no-verify"
 run_hook_case "広範囲削除" 2 "rm -rf /"
 
 echo "agent config check passed"

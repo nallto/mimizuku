@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Claude Code / Codex共通のPreToolUseフック: 危険なshellコマンドをブロックする。
+# Claude Code / Codex / GitHub Copilot共通のPreToolUseフック: 危険なshellコマンドをブロックする。
 # exit 2 = ブロック(stderrがAgentへフィードバックされる)。
 # 注意: settings.json の Bash deny ルールは前方一致で回避されうるため、ここが実質的な
 #       防御線(多層防御の2層目)。文字列検査であり完全ではない。

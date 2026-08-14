@@ -164,7 +164,7 @@ rm -rf ~/.local/state/mimizuku/aec-diagnostics
 | リポジトリ設定 | ブランチ保護 / squash のみ | main の不変条件(G-0001) |
 | CI | ci / pr-title / security | 検証・コミット規約・シークレット混入 |
 | Claude Code | `.claude/settings.json` permissions | 秘密情報の読取・force push の拒否 |
-| Claude Code / Codex | `scripts/agent-hooks/protect-command.sh`(PreToolUse) | 危険コマンドのブロック(2層目) |
+| Claude Code / Codex / GitHub Copilot CLI・cloud agent | `scripts/agent-hooks/protect-command.sh`(PreToolUse) | 危険コマンドのブロック(2層目) |
 | Claude Code | `.claude/hooks/post-edit.sh`(PostToolUse) | 編集ごとの自動整形(swiftformat / Prettier) |
 | 規約文書 | AGENTS.md | 機械強制できない非自明ルールのみ |
 
@@ -181,18 +181,21 @@ rm -rf ~/.local/state/mimizuku/aec-diagnostics
 | `.agents/skills/` | 再利用する手順本文、検証基準、参照資料 | Agent共通の正典 |
 | `.claude/skills/` | Claude Codeのskill探索から共通skillへ接続 | 手順を持たない薄いアダプター |
 | `.claude/agents/` | Claude Code固有のサブエージェント定義 | 役割と共通基準への参照だけ |
+| `.github/copilot-instructions.md` | GitHub Copilotの各surfaceから共通規約へ接続 | 手順を持たない薄いアダプター |
+| `.github/agents/` | GitHub Copilot固有のcustom agent定義 | tool制限と共通基準への参照だけ |
+| `.github/hooks/` | GitHub Copilot CLI・cloud agentのhook接続 | GitHub Copilot固有 |
 | `scripts/agent-hooks/` | Agent間で共用できる決定的なhook処理 | 実装の正典 |
 | `.claude/settings.json` | Claude Codeの権限とhook接続 | Claude Code固有 |
 | `.codex/hooks.json` | Codexのhook接続 | Codex固有 |
 | `.claude/hooks/post-edit.sh` | Claude Codeの編集イベントから単一ファイルを整形 | イベント形式が異なるため固有 |
 
-Claude Codeは`.claude/skills/`、Codexは`.agents/skills/`をプロジェクトskillの探索場所とするため、探索用ファイル自体は分かれる。ただし`.claude/skills/`には対応する共通`SKILL.md`を読む指示だけを置き、手順本文は複製しない。
+Claude Codeは`.claude/skills/`、CodexとGitHub Copilotは`.agents/skills/`をプロジェクトskillの探索場所とする。[GitHub Copilotは`.agents/skills/`をproject skillとしてnative探索できる](https://docs.github.com/en/copilot/concepts/agents/about-agent-skills)ため`.github/skills/`へ複製しない。Claude Codeの`.claude/skills/`には対応する共通`SKILL.md`を読む指示だけを置き、手順本文は複製しない。
 
 commandsはskillと機能が重複し、Claude Codeでは同名skillが優先されるため、 `.claude/commands/`に`adr`、`check`、`verify`を重ねて持たない。slash commandは対応するClaude Code skillから提供する。
 
-PreToolUseのshell入力は両製品とも`tool_input.command`として受け取れるため、危険コマンド判定を共通化する。PostToolUseは、Claude CodeのEdit/Writeが単一の `file_path`を渡すのに対し、Codexの`apply_patch`は複数ファイルを扱いうるため、自動整形hookを無理に共通化しない。Codexでは最終的な`just check`を整形保証とする。
+PreToolUseのshell入力はClaude Code、Codex、GitHub CopilotのPascalCase `PreToolUse`で`tool_input.command`として受け取れるため、危険コマンド判定を共通化する。GitHub Copilotの接続は`.github/hooks/mimizuku-policy.json`に置き、[公式にrepository hookを読み込むCopilot CLIとcloud agent](https://docs.github.com/en/copilot/reference/hooks-reference)を対象とする。Copilotのcommand hookは非ゼロ終了時にfail-closedだがtimeout時はfail-openになるため、10秒以内に完了する決定的なローカル判定だけを置く。PostToolUseは、Claude CodeのEdit/Writeが単一の `file_path`を渡すのに対し、Codexの`apply_patch`は複数ファイルを扱いうるため、自動整形hookを無理に共通化しない。CodexとGitHub Copilotでは最終的な`just check`を整形保証とする。
 
-`.codex/hooks.json`はプロジェクト設定として信頼された環境で有効になる。Agentのsandboxや権限モデルは製品ごとに異なるため完全には共通化せず、禁止理由を `AGENTS.md`、共用できる判定を`scripts/agent-hooks/`、接続と追加権限を製品別設定に分離する。個人用の`.claude/settings.local.json`はGit管理しない。
+`.codex/hooks.json`はプロジェクト設定として信頼された環境で有効になる。[GitHub Copilotのrepository hookはCLIとcloud agentだけが対応する](https://docs.github.com/en/copilot/reference/hooks-reference)ため、Xcode・IDE Chat・code reviewでは`.github/copilot-instructions.md`とCIを保証線とする。Agentのsandboxや権限モデルは製品ごとに異なるため完全には共通化せず、禁止理由を `AGENTS.md`、共用できる判定を`scripts/agent-hooks/`、接続と追加権限を製品別設定に分離する。個人用の`.claude/settings.local.json`はGit管理しない。
 
 ### Agent設定を変更するとき
 
@@ -207,13 +210,17 @@ adapterは探索と製品固有設定だけを持つ薄い入口なので24行�
 新しいAgent製品へ正式対応する場合は、registryへ次を登録する。
 
 - `id`: 製品を識別する安定した名前
+- `instructions.mode`: `AGENTS.md`を直接使う`native`、製品別instructionsから接続する`adapter`
+- `instructions.path`: 製品が読む規約またはadapterのパス。`adapter`では`source`に正典の`AGENTS.md`も記録する
 - `skills.mode`: 共通skillを直接探索する`native`、製品別入口を置く`adapter`、指示ファイルから読む`instructions`
 - `skills.path`: 探索または入口に使うパス
 - `hooks`: 共通hookへ接続する製品別設定ファイル
 
 registryにない未知のAgentは`AGENTS.md`から`.agents/skills/`を読むfallbackで作業できるが、製品固有のskill自動探索やhook動作までは保証しない。正式対応へ昇格するときにregistry、接続層、既存全skillへの到達方法、手動確認結果を同じPRへ追加する。
 
-CIで確認できるのはファイル構造、YAML、参照、hook判定までである。製品上のskill列挙、project trust、hook発火は、新規sessionで手動確認しPR本文へ結果または未確認理由を残す。
+GitHub Copilotでは`.github/copilot-instructions.md`を全surfaceの入口とする。[CLIは`@../AGENTS.md`をimport](https://docs.github.com/en/copilot/how-tos/copilot-cli/customize-copilot/add-custom-instructions)し、importを解釈しないsurfaceには同ファイルから`AGENTS.md`と関連する`.agents/skills/*/SKILL.md`を全文読むよう指示する。custom verifierは`.github/agents/verifier.agent.md`で[tool alias](https://docs.github.com/en/copilot/reference/custom-agents-configuration)の`read`、`search`、`execute`だけを許可し、共通の検証基準を参照する。
+
+CIで確認できるのはファイル構造、YAML、参照、hook判定までである。製品上のinstructions参照、skill列挙、project trust、hook発火、verifierのtool制限は、新規sessionで手動確認しPR本文へ結果または未確認理由を残す。GitHub CopilotではXcodeの新規Chatと、Copilot CLIまたはcloud agentのhook発火を分けて確認する。
 
 ## Agent worktreeと作業ファイル
 

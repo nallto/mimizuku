@@ -1,7 +1,7 @@
 #!/usr/bin/env ruby
 # frozen_string_literal: true
 
-# Agent SkillのfrontmatterをRuby標準のPsychで安全にYAML解析する。
+# Agent向けMarkdownのfrontmatterをRuby標準のPsychで安全にYAML解析する。
 require "yaml"
 
 abort "usage: #{$PROGRAM_NAME} SKILL.md..." if ARGV.empty?

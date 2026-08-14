@@ -1,0 +1,13 @@
+{
+  "version": 1,
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "type": "command",
+        "bash": "bash \"$(git rev-parse --show-toplevel)/scripts/agent-hooks/protect-command.sh\"",
+        "timeoutSec": 10
+      }
+    ]
+  }
+}

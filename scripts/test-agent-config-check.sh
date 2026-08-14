@@ -24,6 +24,8 @@ trap cleanup EXIT
 mkdir -p \
   "$fixture_root/.claude" \
   "$fixture_root/.codex" \
+  "$fixture_root/.github/agents" \
+  "$fixture_root/.github/hooks" \
   "$fixture_root/docs" \
   "$fixture_root/scripts/agent-hooks"
 cp -R "$source_root/.agents" "$fixture_root/.agents"
@@ -32,6 +34,9 @@ cp -R "$source_root/.claude/hooks" "$fixture_root/.claude/hooks"
 cp -R "$source_root/.claude/skills" "$fixture_root/.claude/skills"
 cp "$source_root/.claude/settings.json" "$fixture_root/.claude/settings.json"
 cp "$source_root/.codex/hooks.json" "$fixture_root/.codex/hooks.json"
+cp "$source_root/.github/copilot-instructions.md" "$fixture_root/.github/copilot-instructions.md"
+cp "$source_root/.github/agents/verifier.agent.md" "$fixture_root/.github/agents/verifier.agent.md"
+cp "$source_root/.github/hooks/mimizuku-policy.json" "$fixture_root/.github/hooks/mimizuku-policy.json"
 cp "$source_root/.gitignore" "$fixture_root/.gitignore"
 cp "$source_root/AGENTS.md" "$fixture_root/AGENTS.md"
 cp "$source_root/CLAUDE.md" "$fixture_root/CLAUDE.md"
@@ -92,6 +97,27 @@ expect_failure() {
     }
 }
 
+cp .agents/integrations.json .agents/integrations.json.bak
+jq '.schemaVersion = 1' .agents/integrations.json.bak >.agents/integrations.json
+expect_failure "registry旧schema" ".agents/integrations.json: schemaまたはAgent登録が不正"
+mv .agents/integrations.json.bak .agents/integrations.json
+
+cp .agents/integrations.json .agents/integrations.json.bak
+jq '(.agents[] | select(.id == "claude-code").instructions.source) = "CLAUDE.md"' \
+  .agents/integrations.json.bak >.agents/integrations.json
+expect_failure \
+  "instructions source不整合" \
+  "claude-code: instructions sourceがfallbackと異なる"
+mv .agents/integrations.json.bak .agents/integrations.json
+
+cp .agents/integrations.json .agents/integrations.json.bak
+jq '(.agents[] | select(.id == "github-copilot").skills.path) = ".github/skills"' \
+  .agents/integrations.json.bak >.agents/integrations.json
+expect_failure \
+  "Copilot native skill不整合" \
+  "github-copilot: native skillの正典がfallbackと異なる"
+mv .agents/integrations.json.bak .agents/integrations.json
+
 adapter=.claude/skills/agent-config/SKILL.md
 mv "$adapter" "$adapter.bak"
 expect_failure "adapter欠落" "claude-code: agent-configのadapterがない"
@@ -123,6 +149,56 @@ expect_failure \
   "Claude Code共通規約import欠落" \
   "CLAUDE.md: AGENTS.mdをimportしていない"
 mv CLAUDE.md.bak CLAUDE.md
+
+copilot_instructions=.github/copilot-instructions.md
+mv "$copilot_instructions" "$copilot_instructions.bak"
+expect_failure \
+  "Copilot instructions欠落" \
+  "github-copilot: instructions fileが存在しない"
+mv "$copilot_instructions.bak" "$copilot_instructions"
+
+cp "$copilot_instructions" "$copilot_instructions.bak"
+grep -Fv "@../AGENTS.md" "$copilot_instructions.bak" >"$copilot_instructions"
+expect_failure \
+  "Copilot instructions参照切れ" \
+  ".github/copilot-instructions.md: CLI用のAGENTS.md importがない"
+mv "$copilot_instructions.bak" "$copilot_instructions"
+
+copilot_hook=.github/hooks/mimizuku-policy.json
+mv "$copilot_hook" "$copilot_hook.bak"
+expect_failure \
+  "Copilot hook欠落" \
+  "github-copilot: PreToolUse設定が存在しない"
+mv "$copilot_hook.bak" "$copilot_hook"
+
+cp "$copilot_hook" "$copilot_hook.bak"
+jq '.hooks.PreToolUse[0].matcher = "bash"' "$copilot_hook.bak" >"$copilot_hook"
+expect_failure \
+  "Copilot hook形式不正" \
+  ".github/hooks/mimizuku-policy.json: Copilot PreToolUse hook形式が不正"
+mv "$copilot_hook.bak" "$copilot_hook"
+
+copilot_verifier=.github/agents/verifier.agent.md
+mv "$copilot_verifier" "$copilot_verifier.bak"
+expect_failure \
+  "Copilot verifier欠落" \
+  ".github/agents/verifier.agent.md: 共通検証基準を参照していない"
+mv "$copilot_verifier.bak" "$copilot_verifier"
+
+cp "$copilot_verifier" "$copilot_verifier.bak"
+grep -Fv ".agents/skills/verify/references/verifier.md" "$copilot_verifier.bak" >"$copilot_verifier"
+expect_failure \
+  "Copilot verifier参照切れ" \
+  ".github/agents/verifier.agent.md: 共通検証基準を参照していない"
+mv "$copilot_verifier.bak" "$copilot_verifier"
+
+cp "$copilot_verifier" "$copilot_verifier.bak"
+sed 's/^tools: \[read, search, execute\]$/tools: [read, search, execute, edit]/' \
+  "$copilot_verifier.bak" >"$copilot_verifier"
+expect_failure \
+  "Copilot verifier書き込みtool混入" \
+  ".github/agents/verifier.agent.md: 読み取り専用tool構成が不正"
+mv "$copilot_verifier.bak" "$copilot_verifier"
 
 cp .gitignore .gitignore.bak
 grep -Fv "/.claude/worktrees/" .gitignore.bak >.gitignore

@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "fallback": {
     "instructions": "AGENTS.md",
     "skills": ".agents/skills"
@@ -7,6 +7,10 @@
   "agents": [
     {
       "id": "codex",
+      "instructions": {
+        "mode": "native",
+        "path": "AGENTS.md"
+      },
       "skills": {
         "mode": "native",
         "path": ".agents/skills"
@@ -17,6 +21,11 @@
     },
     {
       "id": "claude-code",
+      "instructions": {
+        "mode": "adapter",
+        "path": "CLAUDE.md",
+        "source": "AGENTS.md"
+      },
       "skills": {
         "mode": "adapter",
         "path": ".claude/skills"
@@ -24,6 +33,21 @@
       "hooks": {
         "preToolUseConfig": ".claude/settings.json",
         "postToolUseConfig": ".claude/settings.json"
+      }
+    },
+    {
+      "id": "github-copilot",
+      "instructions": {
+        "mode": "adapter",
+        "path": ".github/copilot-instructions.md",
+        "source": "AGENTS.md"
+      },
+      "skills": {
+        "mode": "native",
+        "path": ".agents/skills"
+      },
+      "hooks": {
+        "preToolUseConfig": ".github/hooks/mimizuku-policy.json"
       }
     }
   ]

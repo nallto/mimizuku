@@ -266,6 +266,52 @@ extension SessionStoreTests {
 }
 
 extension SessionStoreTests {
+    @Test("保存済みセッションを新しい順に文字起こし付きで列挙する")
+    func listsAvailableSessionsNewestFirstWithTranscripts() async throws {
+        let fixture = try Fixture()
+        defer { fixture.cleanup() }
+        try fixture.store.saveInitialMetadata(fixture.metadata, in: fixture.directory)
+        let older = try await fixture.store.finalize(
+            metadata: fixture.metadata,
+            journalEntries: fixture.entries(),
+            in: fixture.directory
+        )
+
+        let newerStartedAt = fixture.metadata.startedAt.addingTimeInterval(3600)
+        let newerDirectory = try fixture.store.layout.createSessionDirectory(
+            startedAt: newerStartedAt
+        )
+        var newerMetadata = fixture.metadata
+        newerMetadata.id = UUID()
+        newerMetadata.title = "新しいセッション"
+        newerMetadata.startedAt = newerStartedAt
+        var newerEntries = fixture.entries()
+        for index in newerEntries.indices {
+            newerEntries[index].sessionID = newerMetadata.id
+        }
+        try fixture.store.saveInitialMetadata(newerMetadata, in: newerDirectory)
+        let newer = try await fixture.store.finalize(
+            metadata: newerMetadata,
+            journalEntries: newerEntries,
+            in: newerDirectory
+        )
+
+        let sessions = fixture.store.listSessions()
+
+        #expect(sessions.count == 2)
+        guard
+            case let .available(_, firstMetadata, firstTranscript) = sessions[0],
+            case let .available(_, secondMetadata, secondTranscript) = sessions[1]
+        else {
+            Issue.record("保存済みセッションがavailableとして列挙されなかった")
+            return
+        }
+        #expect(firstMetadata.id == newer.metadata.id)
+        #expect(firstTranscript == newer.transcript)
+        #expect(secondMetadata.id == older.metadata.id)
+        #expect(secondTranscript == older.transcript)
+    }
+
     @Test("metaとtranscriptのセッションID不一致は救済対象として列挙する")
     func listsMismatchedSnapshotsForRecovery() async throws {
         let fixture = try Fixture()

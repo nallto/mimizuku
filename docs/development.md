@@ -251,11 +251,31 @@ git worktree add \
 | 種類 | 配置 | 後始末 |
 | --- | --- | --- |
 | PR本文、承認snapshot、検証結果など、ターンやセッションを越えて参照するプロジェクト固有ファイル | `local/agent-artifacts/` | 利用完了後に削除 |
+| 報告待ちの通知(1件1ファイル) | `local/agent-artifacts/report-queue/`(メインチェックアウト基準。G-0010 決定10) | 報告して判断が済んだ時点で削除 |
 | 再取得・再生成できるプロジェクト固有キャッシュ | `local/cache/` | 不要になった時点で削除 |
 | 1コマンド内で完結するテストfixture | `mktemp`で得たシステム一時領域 | 同じプロセスの`trap`等で必ず削除 |
 | OS、Swift、Xcode、Agent製品自身が管理する内部データ | 各製品が定める保存先 | 各製品のretentionとcleanupに従う |
 
 `/private/tmp`などへ置いたファイルを後のターンやセッションで参照する運用は、cleanupを保証できずプロジェクトからも発見できないため行わない。恒久化すべき知識は`local/`に残さず、AGENTS.md、docs、ADR、GitHub Issueへ移す。
+
+## 無人実行と報告キュー
+
+承認者が応答できない時間帯も、承認を必要としない作業は進める。停止点は「人しかできないこと」に限る。許可・禁止の境界と理由は[G-0010](./adr/governance/G-0010-unattended-agent-work.md)、報告の具体手順は`.agents/skills/report-queue/SKILL.md`を正典とする。ツール固有のスキルへ手順を複製しない。
+
+無人実行の境界:
+
+| 区分 | 内容 |
+| --- | --- |
+| 許可 | 作業ブランチへのpush、draft PRの作成・更新、`just check`、docs・ADR・Issueへの記録 |
+| 禁止 | `main`への直接push、あらゆるmerge、ブランチ削除、force push、リポジトリ設定変更、リリース・配布・告知・リポジトリ外サービスへの送信、秘密情報の読み書き、実機・TCC検証の完了判定。このうち`main`への直接pushとforce pushは共通hook(`scripts/agent-hooks/protect-command.sh`)と`main`ルールセットでも拒否されるが、作業ブランチの削除は機械的に止まらない |
+| 着手範囲 | 承認済み計画の続行と、承認を要さない作業に限る。新たに非自明な変更の着手判断が必要になったら、着手せず計画案をキューへ積んで停止する |
+| 変更確認 | 無人経路ではコミット前の変更確認を受けられないため、コミットとpushを行い、確認はdraft PRのdiffで事後に受ける(G-0010 決定7)。統合前の承認は省略しない |
+| 必須 | 作成するPRはdraft。`needs-human`ラベルと本文の「人の介在が必要な項目」節を伴わせる |
+| 作業場所 | `local/worktrees/<issue番号>-<短い説明>/`。利用者が使うmain checkoutを占有しない |
+
+報告キューは`local/agent-artifacts/report-queue/`に1件1ファイルで置く。パスはworktree内ではなく**メインチェックアウトのルート**基準で解決する(worktreeは撤収で消えるため、そこへ積むと報告待ちが失われる)。本ファイルは基準だけを示し、解決方法、優先度規則、ファイル形式、報告手順は`.agents/skills/report-queue/SKILL.md`を正典とする。
+
+定期巡回の内容は`patrol` skillで定義する(G-0010 決定3、追跡は #109)。実行間隔と稼働時間帯は各自のAgent製品側でローカルに登録し、リポジトリへ焼き込まない。夜間に限定せず、休日や日中の中断中も同じ扱いとする。製品別の登録手順は#109で本節へ追記する。
 
 ## セットアップマーカー
 
@@ -277,15 +297,16 @@ git worktree add \
 1. 対応Issue、assignee、Issue番号を含む作業ブランチを確認する。
 2. `git status --short --branch`で対象外の変更が混在していないことを確認する。
 3. `just check`をgreenにする。非自明な変更はverifierの第三者検証も通し、ハードウェア・TCC依存の変更は実機確認結果を記録する。
-4. 未コミットのdiffと検証結果を報告し、利用者の変更確認を受けてからステージ・コミットする。`--no-verify`は使わない。
+4. 未コミットのdiffと検証結果を報告し、利用者の変更確認を受けてからステージ・コミットする。`--no-verify`は使わない。無人実行では変更確認を受けられないため、コミットしてdraft PRのdiffで事後に確認を受ける(「無人実行と報告キュー」およびG-0010 決定7)。それ以外の手順は同じで、`just check`と第三者検証を省略しない。
 
 ### 2. pushとPR作成
 
 1. `git fetch origin`後、`origin/main`に未取得の変更がないか確認する。競合や先行変更があれば、push前に作業ブランチを更新して検証をやり直す。
 2. 作業ブランチだけを`git push -u origin <branch>`でpushする。`main`へ直接pushしない。
 3. PRタイトルをConventional Commits形式、72文字以内、末尾ピリオドなしにする。
-4. PRテンプレートの5節(概要 / 変更内容 / 関連Issue / Squash body / チェックリスト)をすべて埋める。関連Issueは`Closes #<number>`とする。
+4. PRテンプレートの必須5節(概要 / 変更内容 / 関連Issue / Squash body / チェックリスト)をすべて埋める。任意節「人の介在が必要な項目」は該当時のみ残し、無ければ見出しごと削除する(空節をsquash本文へ残さない)。関連Issueは`Closes #<number>`とする。
 5. 作成後にPRのbaseが`main`、headが意図した作業ブランチ、Files changedが1 Issue分だけであることを確認する。
+6. 無人実行で作るPRは`--draft`とし、`needs-human`ラベルを付ける。人の介在が必要な項目を空欄にしたまま作らない。
 
 ### 3. CIとマージ前停止
 

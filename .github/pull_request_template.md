@@ -10,6 +10,10 @@
 
 Closes #
 
+## 人の介在が必要な項目
+
+<!-- 人の介在なしに進められない項目があれば、`needs-human` ラベルを付けて種類と具体手順を書く。種類の一覧と理由は docs/adr/governance/G-0010-unattended-agent-work.md。該当が無ければ、この見出しごと削除する(PR 本文全文が squash 本文として履歴に残るため、空の節を残さない)。 -->
+
 ## Squash body
 
 <!-- what / why の要約(TL;DR)。破壊的変更は "BREAKING CHANGE: <内容と移行>" フッターを含める(release-please が major を検出)。マージ時は PR 本文全文を squash コミット本文にする(#14 スタイル)ため、この PR 説明はそのまま main の履歴に残る。 -->
@@ -31,4 +35,5 @@ Closes #
 - [ ] Agent製品上でしか確認できないskill探索・trust・hook発火の結果、または未確認理由を概要に記載した
 - [ ] Core Audio / Speech に触れる変更は docs/domain-pitfalls.md を再読した
 - [ ] ハードウェア/TCC 依存の挙動はローカル実機で検証した(該当時)
+- [ ] 人の介在が必要な項目がある場合、`needs-human` ラベルと上の節を記入した
 - [ ] private API・音声/文字起こしのネットワーク送信を追加していない(hard constraints)

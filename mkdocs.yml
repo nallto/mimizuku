@@ -65,4 +65,5 @@ nav:
       - G-0007 Markdownソフトラップ: adr/governance/G-0007-markdown-soft-wrap.md
       - G-0008 単一Agentワークフロー: adr/governance/G-0008-unified-agent-workflow.md
       - G-0009 Agentローカル作業物: adr/governance/G-0009-agent-local-artifact-placement.md
+      - G-0010 無人実行と報告キュー: adr/governance/G-0010-unattended-agent-work.md
       - テンプレート: adr/template.md

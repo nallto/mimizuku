@@ -9,6 +9,7 @@
 - プロジェクト個人メモ
 - `worktrees/`: Agentや開発者が明示的に作るGit worktree
 - `agent-artifacts/`: PR本文、承認snapshot、検証結果など、セッションやコマンドを越えて参照するAgent作業ファイル
+- `agent-artifacts/report-queue/`: 報告待ちの通知を1件1ファイルで置く場所(知識本体はIssue・docs・ADRへ書く。worktreeではなくメインチェックアウト基準で解決する ―― G-0010 決定10)
 - `cache/`: 再取得・再生成できるプロジェクト固有のキャッシュ
 
 使い分け:

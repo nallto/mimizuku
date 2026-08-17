@@ -38,6 +38,7 @@
 | [G-0007](./governance/G-0007-markdown-soft-wrap.md) | Markdownはソフトラップを前提に整形する | Accepted |
 | [G-0008](./governance/G-0008-unified-agent-workflow.md) | Agent作業を単一ワークフローと利用者指定の停止条件に分離する | Accepted |
 | [G-0009](./governance/G-0009-agent-local-artifact-placement.md) | Agentのworktreeと作業ファイルをプロジェクト内に置く | Accepted |
+| [G-0010](./governance/G-0010-unattended-agent-work.md) | 無人実行はdraft PRまで許可し、報告は優先度つきキューで1件ずつ行う | Accepted |
 
 ## 書き方
 

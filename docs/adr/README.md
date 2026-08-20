@@ -25,6 +25,7 @@
 | [0014](./0014-aec-processed-microphone-fail-closed.md) | AEC処理済みマイクだけを正式音源とし、参照喪失時はfail-closedにする | Accepted |
 | [0015](./0015-aec-diagnostics-storage.md) | AEC診断データは$XDG_STATE_HOMEへ分離し、揮発性起動引数で有効化する | Accepted |
 | [0016](./0016-capture-stall-detection.md) | 捕捉の停止はソース内部で再構築し、回復しなければfail-closedにする | Accepted |
+| [0017](./0017-capture-gap-silence-fill.md) | 捕捉の欠落区間は、AECの外側で実測長の無音を挿入して時間軸を保つ | Accepted |
 
 ## 統治判断
 

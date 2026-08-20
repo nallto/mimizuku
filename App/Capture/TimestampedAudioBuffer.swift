@@ -17,29 +17,6 @@ struct TimestampedAudioBuffer: @unchecked Sendable {
 }
 
 enum TimestampedStreamSupport {
-    /// timestamped ストリームからバッファだけを取り出す(既存の `buffers()` 契約用の
-    /// アダプタ。cold・単一消費者の性質は上流に従う)。
-    static func droppingTimestamps(
-        _ upstream: AsyncThrowingStream<TimestampedAudioBuffer, Error>
-    ) -> AsyncThrowingStream<AVAudioPCMBuffer, Error> {
-        AsyncThrowingStream { continuation in
-            let task = Task {
-                do {
-                    for try await item in upstream {
-                        // バッファは独立コピーの単一所有(型の正当化コメント参照)。
-                        // 構造体プロパティ経由では sending 性が失われるため明示する。
-                        nonisolated(unsafe) let buffer = item.buffer
-                        continuation.yield(buffer)
-                    }
-                    continuation.finish()
-                } catch {
-                    continuation.finish(throwing: error)
-                }
-            }
-            continuation.onTermination = { _ in task.cancel() }
-        }
-    }
-
     /// `AVAudioTime`(マイク tap コールバック)からホストタイム(秒)を得る。
     /// ホストタイムが無効なら現在時刻で代用する。
     static func seconds(from when: AVAudioTime) -> TimeInterval {

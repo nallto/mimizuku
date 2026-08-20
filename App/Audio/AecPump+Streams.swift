@@ -12,9 +12,17 @@ extension AecPump {
     ) -> AsyncThrowingStream<AVAudioPCMBuffer, Error> {
         AsyncThrowingStream { continuation in
             let task = Task {
+                // tap 再構築や無音時の無出力(pitfalls #15)による欠落は、実測長の無音で
+                // 埋めて時間軸を壁時計に保つ(#116、ADR-0017)。充填は tee の下流だけに
+                // 行い、AEC の参照取り込み(ingestRender)には実バッファのみを渡す。
+                var gapFill = CaptureGapFillState(kind: .systemAudio, logger: self.logger)
                 do {
                     for try await item in upstream {
                         await self.ingestRender(item)
+                        for silence in try gapFill.silenceBuffers(before: item) {
+                            nonisolated(unsafe) let silence = silence
+                            continuation.yield(silence)
+                        }
                         // バッファは独立コピーの単一系列(TimestampedAudioBuffer の
                         // 正当化コメント参照)。
                         nonisolated(unsafe) let buffer = item.buffer
@@ -86,19 +94,7 @@ extension AecPump {
             Task { await self.consumeHiddenReference(make) }
         }
         return AsyncThrowingStream { continuation in
-            let mapTask = Task {
-                do {
-                    for try await frame in frames {
-                        guard let buffer = Self.makeBuffer(from: frame) else {
-                            throw CaptureError.aecProcessingFailed
-                        }
-                        continuation.yield(buffer)
-                    }
-                    continuation.finish()
-                } catch {
-                    continuation.finish(throwing: error)
-                }
-            }
+            let mapTask = self.mapFramesToBuffers(frames, into: continuation)
             continuation.onTermination = { _ in
                 // actorへcancel処理が届く前にwatchdogへ通常停止を可視化する。
                 self.requestShutdown()
@@ -106,6 +102,39 @@ extension AecPump {
                 feedTask.cancel()
                 referenceTask?.cancel()
                 watchdogTask.cancel()
+            }
+        }
+    }
+
+    /// AEC 出力(`AecFrame`)を `buffers()` 契約のバッファ列へ写す。マイク再構築中の欠落
+    /// (pitfalls #14 / #16 / #17)は AEC 出力の hostTime の不連続(capture タイムラインの
+    /// rebase)として現れるため、ここで実測長の無音を差し込み時間軸を壁時計に保つ
+    /// (#116、ADR-0017)。AEC の状態機械には介入しない。
+    private nonisolated func mapFramesToBuffers(
+        _ frames: AsyncThrowingStream<AecFrame, Error>,
+        into continuation: AsyncThrowingStream<AVAudioPCMBuffer, Error>.Continuation
+    ) -> Task<Void, Never> {
+        Task {
+            var gapFill = AecFrameGapFillState(
+                sampleRate: Self.aecFormat?.sampleRate ?? 48000,
+                logger: self.logger
+            )
+            do {
+                for try await frame in frames {
+                    for silent in gapFill.silenceFrames(before: frame) {
+                        guard let buffer = Self.makeBuffer(from: silent) else {
+                            throw CaptureError.bufferCopyFailed
+                        }
+                        continuation.yield(buffer)
+                    }
+                    guard let buffer = Self.makeBuffer(from: frame) else {
+                        throw CaptureError.aecProcessingFailed
+                    }
+                    continuation.yield(buffer)
+                }
+                continuation.finish()
+            } catch {
+                continuation.finish(throwing: error)
             }
         }
     }

@@ -153,6 +153,25 @@ for common_skill in "$fallback_skills"/*/SKILL.md; do
     fail ".claude/commands/$skill_name.md: 共通skillと重複している"
 done
 
+# オーケストレーションのスクリプトは、手順本文の正典となる共通skillとの対で置く
+# (G-0010 決定1・2。スクリプト単独では停止条件・上限の定義が失われる)。
+workflow_dir=.claude/workflows
+if [[ -d $workflow_dir ]]; then
+  for workflow_script in "$workflow_dir"/*.js; do
+    [[ -e $workflow_script ]] || continue
+    workflow_name=$(basename "$workflow_script" .js)
+    workflow_skill="$fallback_skills/$workflow_name/SKILL.md"
+    [[ -f $workflow_skill ]] ||
+      fail "$workflow_script: 対応する共通skillがない"
+    grep -Fq "目的" "$workflow_skill" ||
+      fail "$workflow_skill: オーケストレーションの目的が明記されていない"
+    grep -Fq "停止条件" "$workflow_skill" ||
+      fail "$workflow_skill: オーケストレーションの停止条件が明記されていない"
+    grep -Fq "上限" "$workflow_skill" ||
+      fail "$workflow_skill: エージェント数の上限が明記されていない"
+  done
+fi
+
 grep -Fq "$fallback_skills/verify/references/verifier.md" .claude/agents/verifier.md ||
   fail ".claude/agents/verifier.md: 共通検証基準を参照していない"
 

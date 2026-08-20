@@ -141,6 +141,12 @@ struct DiagnosticsView: View {
             ) {
                 Button("システム設定を開く") { diagnostics.openSettings(.audioCapture) }
             }
+        case .diagnosticBypass:
+            statusRow(
+                icon: "exclamationmark.triangle.fill",
+                tint: .orange,
+                text: "診断用に参照音声を無効化しています(起動引数)。エコーキャンセルは効かず、マイク原音をそのまま保存・文字起こしします。通常の利用では解除してください。"
+            )
         }
     }
 

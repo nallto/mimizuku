@@ -217,4 +217,13 @@ struct AecFeedSchedulerTests {
             ) == nil)
         }
     }
+
+    /// 既定値はADR-0016 決定11が明記しているため、docsだけが黙って乖離しないよう固定する。
+    /// 既存の期限テストは明示値を渡しているので、既定値の変更はここでしか捕まらない。
+    @Test("参照期限の既定値を固定する")
+    func defaultReferenceTimeoutsMatchDocumentedPolicy() {
+        let scheduler = AecFeedScheduler()
+        #expect(scheduler.referenceStartTimeout == 15)
+        #expect(scheduler.referenceRecoveryTimeout == 15)
+    }
 }

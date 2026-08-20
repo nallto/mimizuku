@@ -69,7 +69,7 @@ extension AecPump {
             await self.setOutput(framesContinuation)
             await self.consumeCapture(mic)
         }
-        // captureやrenderの到着に依存しない期限監視。参照が完全に沈黙しても5秒で
+        // captureやrenderの到着に依存しない期限監視。参照が完全に沈黙しても期限(15秒。ADR-0016 決定11)で
         // 必ず処理済みストリームを失敗させる。
         let watchdogTask = Task {
             while !Task.isCancelled {

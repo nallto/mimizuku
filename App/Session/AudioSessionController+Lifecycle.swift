@@ -93,7 +93,7 @@ extension AudioSessionController {
         generation: UInt64
     ) async {
         await discardRecordings(prepared.sessions.map(\.recorder), in: prepared.directory)
-        // 5秒の開始待ち中にsystem側で生成された結果も正式セッションと一緒に破棄する。
+        // 参照の開始待ち中にsystem側で生成された結果も正式セッションと一緒に破棄する。
         discardTranscriptLog(for: generation)
     }
 

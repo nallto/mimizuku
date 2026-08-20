@@ -17,6 +17,10 @@ enum CaptureError: Error, LocalizedError {
     case aecReferenceStartTimedOut
     /// 一時停止したrenderが期限内に戻らず、AEC処理を再開できない。
     case aecReferenceRecoveryTimedOut
+    /// 入力デバイスから有効なフォーマットを得られない(構成変更直後に起こりうる)。
+    case micInputFormatUnavailable(sampleRate: Double, channelCount: AVAudioChannelCount)
+    /// マイク捕捉が停止し、再構築の上限回数でも回復しなかった。
+    case micCaptureStalled(attempts: Int, lastError: String?)
     /// 捕捉ソースの配線が欠けている(到達しない想定の防御。無言 skip にしない)。
     case inputUnavailable(StreamKind)
     /// 選択された捕捉ソースが、キャンセル以外で予期せず終了した。
@@ -33,15 +37,35 @@ enum CaptureError: Error, LocalizedError {
         case .aecInitializationFailed:
             "エコーキャンセルを初期化できませんでした。"
         case .aecReferenceStartTimedOut:
-            "エコーキャンセルの参照音声を5秒以内に取得できませんでした。"
+            "エコーキャンセルの参照音声を期限内に取得できませんでした。"
         case .aecReferenceRecoveryTimedOut:
             "エコーキャンセルの参照音声を復旧できませんでした。"
+        case let .micInputFormatUnavailable(sampleRate, channelCount):
+            "マイクの入力形式を取得できませんでした(\(Int(sampleRate))Hz \(channelCount)ch)。"
+        case let .micCaptureStalled(attempts, lastError):
+            if let lastError {
+                "マイクの音声が途絶え、\(attempts)回の再接続でも復旧しませんでした(\(lastError))。"
+            } else {
+                "マイクの音声が途絶え、\(attempts)回の再接続でも復旧しませんでした。"
+            }
         case let .inputUnavailable(stream):
             "捕捉ソースの配線に失敗しました(\(stream.rawValue))。"
         case let .sourceEndedUnexpectedly(stream):
             "音声入力が予期せず終了しました(\(stream.rawValue))。"
         }
     }
+}
+
+/// マイク捕捉の実行時状態(UI 表示用)。
+///
+/// 再構築がオーディオ層の中でブロックしている間、UI が「録音中」のままだと利用者は
+/// 何も起きていないことに気づけない(docs/domain-pitfalls.md #16)。失敗させない代わりに、
+/// この状態を見せて見切りを利用者へ委ねる(ADR-0016 決定10)。
+enum MicCaptureStatus: Equatable, Sendable {
+    /// 通常。捕捉が流れている。
+    case normal
+    /// 再接続がオーディオ層でブロックしている。
+    case reconnecting(blockedSeconds: TimeInterval)
 }
 
 /// 既定入力デバイス(マイク)を `AVAudioEngine` の入力 tap で捕捉し、**native フォーマットの
@@ -60,14 +84,24 @@ enum CaptureError: Error, LocalizedError {
 ///   切り離してから流す(docs/domain-pitfalls.md #9)。
 /// - **cold・単一消費者。** `buffers()` を呼ぶたびに独立したエンジンを起動し、ストリーム
 ///   終了 / キャンセルで tap とエンジンを確実に解放する(start/stop 反復での状態リーク防止)。
-/// - **voice processing(AEC)は使わない。** スピーカー再生中はマイクが再生音を拾い
-///   「自分」として二重に文字起こしされるが、VPIO の AEC はシステム全体の他アプリ音声
-///   ダッキングを伴い、システム音声 tap の捕捉信号まで減衰させるため採用できない
-///   (docs/domain-pitfalls.md #12)。スピーカー運用時のエコーはヘッドホン利用で回避する。
+/// - **無言で止めない。** 録音中に既定入力デバイスが切り替わるとエンジンは停止して通知を
+///   出すだけで自動再開しない。通知購読による再構築と、通知が出ない形の停止に対する
+///   時間駆動 watchdog をソース内部に持ち、回復できなければ throw する
+///   (`MicrophoneSession`、docs/domain-pitfalls.md #14)。
+/// - **voice processing(VPIO の AEC)は使わない。** VPIO はシステム全体の他アプリ音声を
+///   ダッキングし、システム音声 tap の捕捉信号まで減衰させるため両立しない
+///   (docs/domain-pitfalls.md #12)。スピーカー回り込みの対策は WebRTC AEC3 を
+///   自前の同期層越しに適用する方式で行う(ADR-0013 / ADR-0014)。本ソースは原音を流し、
+///   AEC は `AecPump` が担う。
 final class MicrophoneSource: AudioSource {
     let kind: StreamKind = .microphone
 
     private let logger = Logger(subsystem: "dev.nallto.Mimizuku", category: "capture.mic")
+    private let onStatus: @Sendable (MicCaptureStatus) -> Void
+
+    init(onStatus: @escaping @Sendable (MicCaptureStatus) -> Void = { _ in }) {
+        self.onStatus = onStatus
+    }
 
     func buffers() -> AsyncThrowingStream<AVAudioPCMBuffer, Error> {
         TimestampedStreamSupport.droppingTimestamps(timestampedBuffers())
@@ -77,53 +111,16 @@ final class MicrophoneSource: AudioSource {
     /// cold・単一消費者などの契約は `buffers()` と同じ。
     func timestampedBuffers() -> AsyncThrowingStream<TimestampedAudioBuffer, Error> {
         let logger = logger
+        let onStatus = onStatus
         return AsyncThrowingStream { continuation in
-            // AVAudioEngine とそのノードは Sendable ではない。本エンジンはこの 1 ストリーム
-            // だけが所有し、tap コールバック・start・teardown 以外から触れない(単一所有)。
-            // onTermination は @Sendable なので、単一所有を明示して nonisolated(unsafe) とする
-            // (docs/domain-pitfalls.md #9。型ごと覆う @unchecked Sendable は使わない)。
-            nonisolated(unsafe) let engine = AVAudioEngine()
-            let input = engine.inputNode
-            let inputFormat = input.outputFormat(forBus: 0)
-
-            // 同一フォーマットの「変換」= 所有権を切り離したコピー。
-            guard let copier = BufferConverter(from: inputFormat, to: inputFormat) else {
-                continuation.finish(throwing: CaptureError.converterUnavailable(
-                    from: inputFormat,
-                    to: inputFormat
-                ))
-                return
-            }
-
-            input.installTap(onBus: 0, bufferSize: 4096, format: inputFormat) { buffer, when in
-                guard let copy = copier.convertedCopy(of: buffer) else { return }
-                continuation.yield(TimestampedAudioBuffer(
-                    buffer: copy,
-                    hostTime: TimestampedStreamSupport.seconds(from: when)
-                ))
-            }
-
-            do {
-                engine.prepare()
-                try engine.start()
-                let hz = Int(inputFormat.sampleRate)
-                let ch = Int(inputFormat.channelCount)
-                logger
-                    .notice(
-                        "mic capture started: \(hz, privacy: .public)Hz \(ch, privacy: .public)ch"
-                    )
-            } catch {
-                input.removeTap(onBus: 0)
-                continuation.finish(throwing: error)
-                return
-            }
-
-            continuation.onTermination = { _ in
-                // ストリーム終了 / キャンセルで tap とエンジンを解放する(状態リーク防止)。
-                engine.stop()
-                engine.inputNode.removeTap(onBus: 0)
-                logger.notice("microphone capture stopped")
-            }
+            // エンジンの所有と再構築は MicrophoneSession に閉じる(制御キュー直列化)。
+            let session = MicrophoneSession(
+                continuation: continuation,
+                logger: logger,
+                onStatus: onStatus
+            )
+            session.start()
+            continuation.onTermination = { _ in session.stop() }
         }
     }
 }

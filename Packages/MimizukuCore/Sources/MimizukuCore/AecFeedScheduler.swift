@@ -70,7 +70,10 @@ public struct AecFeedScheduler: Sendable {
     public let frameDuration: TimeInterval
     /// active 中のcapture保留上限。超過分は正式音源へ出さず破棄する。
     public let maxHeldFrames: Int
-    /// 初回 render の待機期限。既定5秒は実測の正常起動遅延約1.2秒に十分な余裕を持つ。
+    /// 初回 render の待機期限。既定15秒(ADR-0016 決定11でADR-0014の5秒から改訂)。
+    /// 正常起動遅延は実測約1.2秒だが、Bluetooth出力への切替を挟むと5秒では復旧が間に合わず、
+    /// 実機でセッションが失敗した(2026-08-20、#93)。復旧中のマイクは同長の無音へ置換される
+    /// ため、期限を延ばしてもシステム音声が正式音源へ混入することはない(ADR-0014の不変条件)。
     public let referenceStartTimeout: TimeInterval
     /// 一時停止後に render が戻るまでの期限。
     public let referenceRecoveryTimeout: TimeInterval
@@ -98,8 +101,8 @@ public struct AecFeedScheduler: Sendable {
         holdTimeout: TimeInterval = 0.2,
         frameDuration: TimeInterval = 480.0 / 48000.0,
         maxHeldFrames: Int = 400,
-        referenceStartTimeout: TimeInterval = 5.0,
-        referenceRecoveryTimeout: TimeInterval = 5.0
+        referenceStartTimeout: TimeInterval = 15.0,
+        referenceRecoveryTimeout: TimeInterval = 15.0
     ) {
         precondition(holdTimeout >= 0 && frameDuration > 0 && maxHeldFrames > 0)
         precondition(referenceStartTimeout > 0 && referenceRecoveryTimeout > 0)

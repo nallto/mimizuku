@@ -53,7 +53,9 @@ final class SystemAudioTapSource: AudioSource {
     private let logger = Logger(subsystem: "dev.nallto.Mimizuku", category: "capture.tap")
 
     func buffers() -> AsyncThrowingStream<AVAudioPCMBuffer, Error> {
-        TimestampedStreamSupport.droppingTimestamps(timestampedBuffers())
+        // 再構築や無音時の無出力(#15)による欠落は実測長の無音で埋め、時間軸を
+        // 壁時計に保つ(#116、ADR-0017)。
+        GapFillingStreamSupport.fillingGaps(timestampedBuffers(), kind: kind, logger: logger)
     }
 
     /// AEC 経路用: 捕捉時刻付きで流す(消費者は AEC ポンプ ―― AEC-3。ADR-0013 の 4)。

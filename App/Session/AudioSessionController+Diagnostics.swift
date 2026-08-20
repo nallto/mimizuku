@@ -25,6 +25,17 @@ extension AudioSessionController {
         return false
     }
 
+    /// 隠し参照 tap を止めるか(切り分け用)。診断フラグと同じく起動引数だけを読む。
+    static func isHiddenReferenceTapDisabled(
+        argumentDomain: [String: Any] = UserDefaults.standard
+            .volatileDomain(forName: UserDefaults.argumentDomain)
+    ) -> Bool {
+        guard let value = argumentDomain[disableHiddenReferenceTapDefaultsKey] else { return false }
+        if let number = value as? NSNumber { return number.boolValue }
+        if let string = value as? String { return (string as NSString).boolValue }
+        return false
+    }
+
     /// 診断試行を生成する(フラグ off / マイク非含有モード / 生成失敗は nil)。
     func makeAecDiagnosticsTrial(streams: [StreamKind]) -> AecDiagnosticsTrial? {
         guard Self.isAecDiagnosticsEnabled() else { return nil }

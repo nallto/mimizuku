@@ -120,6 +120,16 @@ private struct MenuContent: View {
         if let lastError = controller.lastError {
             return "エラー: \(lastError)"
         }
+        if controller.aecStatus == .diagnosticBypass {
+            // 診断用に参照tapを止めている間はAEC未処理の原音を保存する(ADR-0016 決定13)。
+            // 通常運用と取り違えないよう、⌘D を開かなくても分かる位置に出す。
+            return "診断用: エコーキャンセル無効(原音を保存中)"
+        }
+        if case let .reconnecting(blockedSeconds) = controller.micStatus {
+            // 再構築がオーディオ層でブロックしている間は音声が入らない。「録音中」のままに
+            // せず、状態を見せて見切りを利用者へ委ねる(ADR-0016 決定10)。
+            return "マイクを再接続中…(\(Int(blockedSeconds))秒)"
+        }
         switch controller.assetStatus {
         case .notInstalled: return "音声モデル未導入"
         case .downloading: return "音声モデルを準備中…"

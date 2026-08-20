@@ -28,7 +28,7 @@ extension AudioSessionController {
     /// 「両方」モード: システム音声 tee(相手側の文字起こし・録音はそのまま)+ 処理後マイク。
     /// ブリッジ初期化に失敗した場合、raw micへフォールバックせず開始失敗にする。
     private func makeBothInputs(generation: UInt64) async throws -> [StreamKind: any AudioSource] {
-        let mic = MicrophoneSource()
+        let mic = makeMicrophoneSource(generation: generation)
         let system = SystemAudioTapSource()
         let pump = makeAecPump(generation: generation)
         guard await pump.start() else {
@@ -63,12 +63,20 @@ extension AudioSessionController {
     /// その直後に本番の参照 tap を作ると本番 tap が無音になり AEC が何も打ち消せない
     /// (両方モードにはこの事前プローブが無く、打ち消せている ―― 唯一の構造差)。参照 tap は
     /// `DeferredAudioSource` の中で直接起動し、両方モードと同一経路(本番 tap を直接消費)に
-    /// 揃える。参照が使えない場合、マイク原音は正式音源へ流さず、5秒の期限内に
-    /// 参照を得られなければセッション開始失敗にする。
+    /// 揃える。参照が使えない場合、マイク原音は正式音源へ流さず、期限内に
+    /// 参照を得られなければセッション開始失敗にする(期限はADR-0016 決定11で15秒)。
     private func makeMicrophoneOnlyInputs(
         generation: UInt64
     ) async throws -> [StreamKind: any AudioSource] {
-        let mic = MicrophoneSource()
+        let mic = makeMicrophoneSource(generation: generation)
+        if Self.isHiddenReferenceTapDisabled() {
+            // 切り分け用の診断経路(既定では通らない)。マイク切替のブロックが隠し参照 tap 由来か
+            // `AVAudioEngine` の出力側由来かを分離するため、tap を起動せず原音のまま流す。
+            // **AEC は効かない**ので、回り込みは残る。実験以外で使わない。
+            logger.notice("hidden reference tap disabled by launch argument (diagnostic)")
+            applyAecStatus(.diagnosticBypass, for: generation)
+            return [.microphone: mic]
+        }
         let pump = makeAecPump(generation: generation)
         guard await pump.start() else {
             logger.error("aec unavailable (mic-only); refusing raw microphone")
@@ -93,6 +101,16 @@ extension AudioSessionController {
         ]
     }
 
+    /// マイク捕捉の状態を MainActor へ反映するソースを作る。
+    /// 再構築がブロックしている間を「録音中」と見せないための経路(ADR-0016 決定10)。
+    private func makeMicrophoneSource(generation: UInt64) -> MicrophoneSource {
+        MicrophoneSource { [weak self] status in
+            Task { @MainActor [weak self] in
+                self?.applyMicStatus(status, for: generation)
+            }
+        }
+    }
+
     /// AEC ポンプの実行時状態を MainActor の診断状態へ反映する。
     private func makeAecPump(generation: UInt64) -> AecPump {
         AecPump(diagnostics: aecDiagnosticsRecorder) { [weak self] status in
@@ -114,7 +132,7 @@ extension AudioSessionController {
         case .failed(.referenceStartTimedOut):
             logger.error("aec failed (reference start timed out)")
             applyAecStatus(
-                .failed(reason: "参照音声を5秒以内に取得できませんでした。"),
+                .failed(reason: "参照音声を期限内に取得できませんでした。"),
                 for: generation
             )
         case .failed(.referenceRecoveryTimedOut):

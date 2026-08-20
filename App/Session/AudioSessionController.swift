@@ -36,6 +36,10 @@ final class AudioSessionController {
     /// 外部からは読み取り専用。配線層(`AudioSessionController+Inputs`)からは
     /// `applyAecStatus(_:)` 経由でのみ更新する(UI からの書き換えを防ぐ)。
     private(set) var aecStatus: AecStatus = .notApplicable
+    /// マイク捕捉の実行時状態(メニューバー表示用)。再構築がオーディオ層でブロックしている
+    /// 間も「録音中」と表示すると、利用者は何も起きていないことに気づけない
+    /// (docs/domain-pitfalls.md #16、ADR-0016 決定10)。
+    private(set) var micStatus: MicCaptureStatus = .normal
 
     /// これ未満の録音は停止時に破棄する(誤操作・空セッション対策、ADR-0006 の 8)。
     static let minimumSessionDuration: TimeInterval = 2.0
@@ -57,6 +61,10 @@ final class AudioSessionController {
     var aecDiagnosticsTrial: AecDiagnosticsTrial?
     /// 起動引数キー(argument domain のみを読む ―― 永続 defaults では有効化させない)。
     static let aecDiagnosticsDefaultsKey = "AecDiagnosticsEnabled"
+    /// 切り分け用: マイク単体モードの隠し参照 tap を起動しない(AEC は無効になる)。
+    /// マイク切替のブロックが、私たちの tap 由来か `AVAudioEngine` の出力側由来かを
+    /// 分離するための診断フラグ。揮発性の起動引数のみで有効化する(ADR-0015 と同じ機構)。
+    static let disableHiddenReferenceTapDefaultsKey = "DisableHiddenReferenceTap"
     /// start/stopをまたいで遅延到着する旧セッションの通知・後始末を識別する。
     /// 世代が一致しない処理は録音ファイルのクローズ以外のUI状態を変更しない。
     private var sessionGeneration: UInt64 = 0
@@ -112,6 +120,12 @@ final class AudioSessionController {
         let generation = sessionGeneration
         isRunning = true
         lastError = nil
+        // 前セッションの「再接続中」を持ち越さない。ブロック中の build が遅れて完了しても、
+        // 世代不一致で `applyMicStatus` に弾かれるため、ここで戻さないと表示が固まる。
+        micStatus = .normal
+        // AEC状態も持ち越さない。診断バイパスの警告が待機中や別モードのセッションへ
+        // 残ると、事実と違う表示になる(`micStatus` と同種の持ち越し)。
+        aecStatus = .notApplicable
         log = TranscriptLog()
         sessionTask = Task { [weak self] in
             guard let self else { return }
@@ -176,5 +190,11 @@ final class AudioSessionController {
     func applyAecStatus(_ status: AecStatus, for generation: UInt64) {
         guard isCurrentSession(generation) else { return }
         aecStatus = status
+    }
+
+    /// マイク捕捉状態を更新する(同じく配線層からの唯一の書き込み口)。
+    func applyMicStatus(_ status: MicCaptureStatus, for generation: UInt64) {
+        guard isCurrentSession(generation) else { return }
+        micStatus = status
     }
 }

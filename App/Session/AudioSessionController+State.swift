@@ -30,5 +30,8 @@ extension AudioSessionController {
         case recovering
         /// AECを開始・復旧できず、セッションを継続できない。
         case failed(reason: String)
+        /// 診断用に参照tapを止めている(ADR-0016 決定13)。セッションは継続し、
+        /// **AEC未処理のマイク原音を保存・文字起こしする**。通常運用では発生しない。
+        case diagnosticBypass
     }
 }

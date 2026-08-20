@@ -27,8 +27,8 @@ ADR-0013ではWebRTC AEC3を採用し、処理後マイクを録音・文字起�
 1. ADR-0013のWebRTC AEC3、48kHz/mono/10ms、処理後音声を録音・文字起こしに共用する決定は維持する。ただし失敗時のgraceful degradationを廃止し、本ADRでADR-0013を置換する。
 2. **APM処理済みマイクだけを正式なマイク音源とする。** 初回render前、参照復旧中、AEC失敗後のマイク原音を録音・文字起こしへ流さない。
 3. 開始・復旧中のcaptureは、原音を同じ長さの完全無音へ置き換える。録音の時間軸を維持しつつ、Speech層は既存の完全無音除外(domain-pitfalls #11)により解析しない。
-4. AEC状態を`waitingForReference / active / recovering / failed`として管理する。初回renderの待機期限は**5秒**とする。正常時の実測起動遅延約1.2秒に十分な余裕を持たせ、capture/render到着に依存しないwatchdogで期限を保証する。
-5. active中に対応renderを200ms待っても得られなければrecoveringへ移る。復旧期限は **5秒**とし、renderが戻ればAPM・aligner・render framerを新しい同期epochへリセットしてactiveへ復帰する。capture framerは連続性を維持し、復旧境界を跨ぐcaptureフレームはhost time判定で無音化する。期限超過はセッション失敗とする。
+4. AEC状態を`waitingForReference / active / recovering / failed`として管理する。初回renderの待機期限は**5秒**とする(ADR-0016 決定11で15秒へ改訂)。正常時の実測起動遅延約1.2秒に十分な余裕を持たせ、capture/render到着に依存しないwatchdogで期限を保証する。
+5. active中に対応renderを200ms待っても得られなければrecoveringへ移る。復旧期限は **5秒**とし(ADR-0016 決定11で15秒へ改訂)、renderが戻ればAPM・aligner・render framerを新しい同期epochへリセットしてactiveへ復帰する。capture framerは連続性を維持し、復旧境界を跨ぐcaptureフレームはhost time判定で無音化する。期限超過はセッション失敗とする。
 6. マイク単体モードの隠し参照tapが終了した場合は、500msのbackoff後に新しいtapを生成して復旧を試す。マイク＋システム音声モードで正式なシステム音声ソース自体が終了した場合は、システム録音も成立しないためセッション全体を失敗させる。
 7. APM初期化失敗時もマイク原音へフォールバックせず、セッション開始失敗にする。初回render未着で開始失敗したセッションは、system側だけを残さず全体を破棄する。
 8. セッション終了用drainは残余captureの原音を破棄するだけとし、実行時状態遷移やfailed通知を発生させない。ライブマイクの非キャンセル終了は正常終了ではなく予期しない入力喪失として扱う。利用者停止は同期shutdown gateでwatchdogより優先し、停止後のfailed通知・エラー表示を発生させない。
@@ -46,4 +46,4 @@ ADR-0013ではWebRTC AEC3を採用し、処理後マイクを録音・文字起�
   - 参照再生成によりCore Audio資源の再作成コストが生じる。即時連打を避けるため500ms backoffを置く。
 - 制約:
   - render復帰は「参照経路が再びフレームを供給した」ことを示すだけで、AECの抑圧品質を保証しない。raw capture / render / processed captureの比較計測と品質判定は#75で実施し、必要なら復帰条件を追加する。
-  - 5秒の開始・復旧期限は正常起動遅延の実測値に基づく初期値であり、#75の計測結果で再評価する。
+  - 5秒の開始・復旧期限は正常起動遅延の実測値に基づく初期値であり、#75の計測結果で再評価する。**この再評価は#93の実機検証で行い、ADR-0016 決定11で15秒へ改訂した**(Bluetooth出力への切替時に5秒では復旧が間に合わないことを実測)。

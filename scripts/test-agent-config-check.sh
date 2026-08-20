@@ -32,6 +32,7 @@ cp -R "$source_root/.agents" "$fixture_root/.agents"
 cp -R "$source_root/.claude/agents" "$fixture_root/.claude/agents"
 cp -R "$source_root/.claude/hooks" "$fixture_root/.claude/hooks"
 cp -R "$source_root/.claude/skills" "$fixture_root/.claude/skills"
+cp -R "$source_root/.claude/workflows" "$fixture_root/.claude/workflows"
 cp "$source_root/.claude/settings.json" "$fixture_root/.claude/settings.json"
 cp "$source_root/.codex/hooks.json" "$fixture_root/.codex/hooks.json"
 cp "$source_root/.github/copilot-instructions.md" "$fixture_root/.github/copilot-instructions.md"
@@ -127,6 +128,26 @@ mkdir -p .claude/commands
 cp "$adapter" .claude/commands/agent-config.md
 expect_failure "同名command" ".claude/commands/agent-config.md: 共通skillと重複している"
 rm -f .claude/commands/agent-config.md
+
+printf '%s\n' "export const meta = {}" >.claude/workflows/orphan.js
+expect_failure "対応共通skillのないworkflow" ".claude/workflows/orphan.js: 対応する共通skillがない"
+rm -f .claude/workflows/orphan.js
+
+workflow_skill=.agents/skills/investigate-issues/SKILL.md
+cp "$workflow_skill" "$workflow_skill.bak"
+sed -e 's/目的//g' "$workflow_skill.bak" >"$workflow_skill"
+expect_failure \
+  "workflow skillの目的欠落" \
+  "$workflow_skill: オーケストレーションの目的が明記されていない"
+sed -e 's/停止条件//g' "$workflow_skill.bak" >"$workflow_skill"
+expect_failure \
+  "workflow skillの停止条件欠落" \
+  "$workflow_skill: オーケストレーションの停止条件が明記されていない"
+sed -e 's/上限//g' "$workflow_skill.bak" >"$workflow_skill"
+expect_failure \
+  "workflow skillの上限欠落" \
+  "$workflow_skill: エージェント数の上限が明記されていない"
+mv "$workflow_skill.bak" "$workflow_skill"
 
 common_skill=.agents/skills/agent-config/SKILL.md
 cp "$common_skill" "$common_skill.bak"

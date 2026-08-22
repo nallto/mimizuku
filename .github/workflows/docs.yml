@@ -9,6 +9,13 @@ on:
       - docs/**
       - mkdocs.yml
       - .github/workflows/docs.yml
+  # buildはPRでも走らせ、docsを壊す変更をマージ前のchecksで検出する(#126)。
+  # strictビルドはmain pushでしか走らないと、失敗がマージ後に初めて判明する。
+  pull_request:
+    paths:
+      - docs/**
+      - mkdocs.yml
+      - .github/workflows/docs.yml
 
 permissions:
   contents: read
@@ -16,7 +23,8 @@ permissions:
   id-token: write
 
 concurrency:
-  group: pages
+  # mainのデプロイ同士は直列のまま、PRのビルドをデプロイ列に混ぜない。
+  group: pages-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
@@ -36,6 +44,8 @@ jobs:
           path: _site
 
   deploy:
+    # Pagesへのデプロイはmainへのpush時のみ(PRではビルド検証だけを行う)。
+    if: github.event_name == 'push'
     needs: build
     runs-on: ubuntu-latest
     timeout-minutes: 10

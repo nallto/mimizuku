@@ -275,7 +275,7 @@ git worktree add \
 
 報告キューは`local/agent-artifacts/report-queue/`に1件1ファイルで置く。パスはworktree内ではなく**メインチェックアウトのルート**基準で解決する(worktreeは撤収で消えるため、そこへ積むと報告待ちが失われる)。本ファイルは基準だけを示し、解決方法、優先度規則、ファイル形式、報告手順は`.agents/skills/report-queue/SKILL.md`を正典とする。
 
-定期巡回の内容は[`patrol` skill](../.agents/skills/patrol/SKILL.md)で定義する(G-0010 決定3)。実行間隔と稼働時間帯は各自のAgent製品側でローカルに登録し、リポジトリへ焼き込まない。夜間に限定せず、休日や日中の中断中も同じ扱いとする。
+定期巡回の内容は`.agents/skills/patrol/SKILL.md`で定義する(G-0010 決定3)。実行間隔と稼働時間帯は各自のAgent製品側でローカルに登録し、リポジトリへ焼き込まない。夜間に限定せず、休日や日中の中断中も同じ扱いとする。
 
 製品別のローカル登録手順:
 

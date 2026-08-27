@@ -255,11 +255,37 @@ run_hook_case() {
   fi
 }
 
-run_hook_case "安全なコマンド" 0 "git status --short"
+run_hook_case "safe command" 0 "git status --short"
 run_hook_case "force push" 2 "git push --force origin topic"
-run_hook_case "main直接push" 2 "git push origin HEAD:main"
-run_hook_case "hook回避" 2 "git commit --no-verify"
-run_hook_case "dry-runでのhook回避" 2 "git commit --dry-run --no-verify"
-run_hook_case "広範囲削除" 2 "rm -rf /"
+run_hook_case "force push (with-lease)" 2 "git push --force-with-lease"
+run_hook_case "push to main (HEAD:main)" 2 "git push origin HEAD:main"
+run_hook_case "push to main (ブランチ名のみ)" 2 "git push origin main"
+run_hook_case "push to main (完全refspec)" 2 "git push origin refs/heads/main"
+run_hook_case "push to main (HEAD:完全refspec)" 2 "git push origin HEAD:refs/heads/main"
+run_hook_case "push to main (set-upstream)" 2 "git push --set-upstream origin main"
+run_hook_case "push to main (-C付き)" 2 "git -C /tmp/x push origin main"
+run_hook_case "push to main (heads/短縮refspec)" 2 "git push origin heads/main"
+run_hook_case "push to main (HEAD:heads/短縮refspec)" 2 "git push origin HEAD:heads/main"
+run_hook_case "push to main (行継続)" 2 $'git \\\n  push origin main'
+run_hook_case "push to main (トークン中間の行継続)" 2 $'git pu\\\nsh origin main'
+run_hook_case "push to main (timeプレフィクス)" 2 "time git push origin main"
+run_hook_case "push to main (変数代入プレフィクス)" 2 "GIT_TRACE=1 git push origin main"
+run_hook_case "push to main (ブレースグループ)" 2 '{ git push origin main ; }'
+run_hook_case "force push (+refspec)" 2 "git push origin +topic"
+run_hook_case "force push (コマンド置換内)" 2 'echo $(git push --force origin topic)'
+run_hook_case "allow: 本文にpush語を含むgh pr create" 0 \
+  'gh pr create --title t --body "git worktree で作業し push する手順を main へ反映する"'
+run_hook_case "allow: 本文にpushコマンド例を含むgh issue comment" 0 \
+  'gh issue comment 111 --body "git push origin main を禁止する"'
+run_hook_case "allow: main参照のgit logとfeature branchへのpushの複合" 0 \
+  "git log --oneline main..origin/main && git push origin feat/111-x"
+run_hook_case "allow: mainを含む別コマンドとpushの複合" 0 \
+  'echo "main " ; git push origin topic'
+run_hook_case "allow: 改行を挟んだgitとpush語" 0 \
+  $'gh pr create --body "git worktree で作業\npush 手順を main へ反映"'
+run_hook_case "allow: mainを含むfeature branch名" 0 "git push origin feat/x-main-thing"
+run_hook_case "hook bypass" 2 "git commit --no-verify"
+run_hook_case "hook bypass with dry-run" 2 "git commit --dry-run --no-verify"
+run_hook_case "broad destructive rm" 2 "rm -rf /"
 
 echo "agent config check passed"

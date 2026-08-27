@@ -384,3 +384,16 @@ rmdir -- "$pr_artifact_dir"
 ## ブランチ運用・リリース
 
 規約: `AGENTS.md`(リポジトリ直下)。具体的な統合手順は上の「変更をmainへ統合する」。理由: [G-0001](./adr/governance/G-0001-merge-strategy.md) / [G-0002](./adr/governance/G-0002-release-strategy.md) / [G-0003](./adr/governance/G-0003-incomplete-code-integration.md)。
+
+### リリースPRのworkflow承認
+
+release-pleaseのリリースPR(`github-actions[bot]`作成)は、Actionsの承認ポリシーによりworkflowが毎回`action_required`で止まり、必須チェックが走らないままマージ不能(`BLOCKED`)になる(#131。採用した方針は「人が承認する運用」)。リリースPRをマージする前に、人がworkflowを承認してCIを回す。
+
+```bash
+gh run list --branch release-please--branches--main --limit 3 \
+  --json databaseId,status,conclusion
+# action_required の run ごとに承認する(PR画面の "Approve and run workflows" でも可)
+gh api -X POST repos/{owner}/{repo}/actions/runs/<run_id>/approve
+```
+
+リリースPRはmainが進むたびにrelease-pleaseが更新するため、承認はマージ直前に行う(headが変わると再承認が必要)。workflowの承認とマージはどちらも無人実行の禁止事項であり、人が行う。

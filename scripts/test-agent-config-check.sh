@@ -45,6 +45,7 @@ cp "$source_root/docs/development.md" "$fixture_root/docs/development.md"
 cp \
   "$source_root/scripts/check-agent-config.sh" \
   "$source_root/scripts/check-skill-frontmatter.rb" \
+  "$source_root/scripts/agent-merge-pr.sh" \
   "$fixture_root/scripts/"
 cp \
   "$source_root/scripts/agent-hooks/protect-command.sh" \

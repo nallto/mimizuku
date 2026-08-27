@@ -219,6 +219,10 @@ done < <(
   ' "$registry"
 )
 
+agent_merge_entry=scripts/agent-merge-pr.sh
+[[ -x $agent_merge_entry ]] ||
+  fail "$agent_merge_entry: AI Agent用マージ入口が存在しないか実行可能でない"
+
 while IFS=$'\t' read -r agent_id hook_config; do
   [[ -f $hook_config ]] ||
     fail "$agent_id: PostToolUse設定が存在しない"
@@ -284,8 +288,118 @@ run_hook_case "allow: mainを含む別コマンドとpushの複合" 0 \
 run_hook_case "allow: 改行を挟んだgitとpush語" 0 \
   $'gh pr create --body "git worktree で作業\npush 手順を main へ反映"'
 run_hook_case "allow: mainを含むfeature branch名" 0 "git push origin feat/x-main-thing"
+run_hook_case "direct PR merge" 2 "gh pr merge 123 --squash"
+run_hook_case "direct PR merge (gh global option)" 2 "gh --repo nallto/mimizuku pr merge 123"
+run_hook_case "direct PR merge (joined -R option)" 2 "gh -Rnallto/mimizuku pr merge 123"
+run_hook_case "direct PR merge (command prefix)" 2 "command gh pr merge 123"
+run_hook_case "direct PR merge (quoted executable)" 2 "\"gh\" pr merge 123"
+run_hook_case "direct PR merge (quoted subcommand)" 2 "gh pr 'merge' 123"
+run_hook_case "direct PR merge (compound command)" 2 "gh pr view 123 && gh pr merge 123"
+run_hook_case "direct PR merge (double-quoted command substitution)" 2 \
+  'echo "$(gh pr merge 123 --squash)"'
+run_hook_case "direct PR merge (assignment command substitution)" 2 \
+  'result="$(gh pr merge 123 --squash)"'
+run_hook_case "direct PR merge (double-quoted backtick)" 2 \
+  'echo "`gh pr merge 123 --squash`"'
+run_hook_case "force push (double-quoted command substitution)" 2 \
+  'echo "$(git push --force origin topic)"'
+run_hook_case "direct PR merge (escaped quote before separator)" 2 \
+  'echo \" ; gh pr merge 123 --squash'
+run_hook_case "REST PR merge" 2 "gh api -X PUT repos/nallto/mimizuku/pulls/123/merge"
+run_hook_case "REST PR merge (endpoint first)" 2 "gh api repos/nallto/mimizuku/pulls/123/merge --method PUT"
+run_hook_case "GraphQL PR merge" 2 \
+  "gh api graphql -f 'query=mutation { mergePullRequest(input: {}) { pullRequest { id } } }'"
+run_hook_case "GraphQL auto-merge" 2 \
+  "gh api graphql -f 'query=mutation { enablePullRequestAutoMerge(input: {}) { pullRequest { id } } }'"
+run_hook_case "GraphQL merge queue" 2 \
+  "gh api graphql -f 'query=mutation { enqueuePullRequest(input: {}) { mergeQueueEntry { id } } }'"
+run_hook_case "allow: Agent専用マージ入口" 0 \
+  "scripts/agent-merge-pr.sh 123 --squash --match-head-commit abc"
+run_hook_case "allow: PR参照" 0 "gh pr view 123 --json headRefName"
+run_hook_case "allow: GraphQL query" 0 \
+  "gh api graphql -f 'query=query { viewer { login } }'"
+run_hook_case "allow: API本文内のmerge endpoint例" 0 \
+  "gh api repos/nallto/mimizuku/issues/135/comments -f 'body=gh api -X PUT repos/o/r/pulls/1/merge は禁止'"
+run_hook_case "allow: issue comment内のdirect merge例" 0 \
+  "gh issue comment 135 --body 'gh pr merge 123 は直接使わない'"
+run_hook_case "allow: rgの選択肢内のdirect merge例" 0 \
+  "rg -n 'gh pr merge|mergePullRequest' docs scripts"
+run_hook_case "allow: quoted pipeを含む表示" 0 \
+  "printf '%s\\n' 'gh pr merge 123 | mergePullRequest'"
+run_hook_case "allow: single quote内のcommand substitution例" 0 \
+  "printf '%s\\n' '\$(gh pr merge 123 --squash)'"
+run_hook_case "allow: escaped dollarのcommand substitution例" 0 \
+  'printf "%s\n" "\$(gh pr merge 123 --squash)"'
+run_hook_case "allow: escaped pipeを含む引数" 0 \
+  "printf '%s\\n' foo\\|gh pr merge 123 --squash"
 run_hook_case "hook bypass" 2 "git commit --no-verify"
 run_hook_case "hook bypass with dry-run" 2 "git commit --dry-run --no-verify"
 run_hook_case "broad destructive rm" 2 "rm -rf /"
+
+merge_test_dir=$(mktemp -d)
+case "$merge_test_dir" in
+  /tmp/* | /private/tmp/* | /var/folders/* | /private/var/folders/*) ;;
+  *) fail "unsafe merge test directory: $merge_test_dir" ;;
+esac
+cleanup_merge_test() {
+  rm -rf -- "$merge_test_dir"
+}
+trap cleanup_merge_test EXIT
+
+mkdir -p "$merge_test_dir/bin"
+cat >"$merge_test_dir/bin/gh" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+
+if [[ ${1:-} == pr && ${2:-} == view ]]; then
+  printf '%s\n' "${AGENT_MERGE_TEST_HEAD_REF:?}"
+  exit 0
+fi
+if [[ ${1:-} == pr && ${2:-} == merge ]]; then
+  printf '%s\n' "$@" >"${AGENT_MERGE_TEST_LOG:?}"
+  exit 0
+fi
+exit 64
+EOF
+chmod +x "$merge_test_dir/bin/gh"
+
+run_agent_merge_case() {
+  local name=$1
+  local expected_status=$2
+  local head_ref=$3
+  local log_file="$merge_test_dir/$name.log"
+  local output
+  local actual_status
+
+  set +e
+  output=$(
+    PATH="$merge_test_dir/bin:$PATH" \
+      AGENT_MERGE_TEST_HEAD_REF="$head_ref" \
+      AGENT_MERGE_TEST_LOG="$log_file" \
+      bash "$agent_merge_entry" 123 --squash --match-head-commit abc 2>&1
+  )
+  actual_status=$?
+  set -e
+
+  [[ $actual_status -eq $expected_status ]] ||
+    fail "$name: status=$actual_status, expected=$expected_status, output=$output"
+  if [[ $expected_status -eq 2 ]]; then
+    [[ $output == BLOCKED:* ]] ||
+      fail "$name: release-please拒否理由が出力されていない"
+    [[ ! -e $log_file ]] ||
+      fail "$name: 拒否後にmergeが実行された"
+  else
+    [[ -f $log_file ]] ||
+      fail "$name: 通常PRのmergeが実行されなかった"
+    grep -Fxq "123" "$log_file" ||
+      fail "$name: PR番号がmergeへ渡っていない"
+    grep -Fxq -- "--match-head-commit" "$log_file" ||
+      fail "$name: mergeオプションが引き継がれていない"
+  fi
+}
+
+run_agent_merge_case "release-please PR" 2 "release-please--branches--main"
+run_agent_merge_case "通常PR" 0 "fix/135-block-ai-release-merge"
+run_agent_merge_case "似た名前の通常PR" 0 "fix/release-please-docs"
 
 echo "agent config check passed"

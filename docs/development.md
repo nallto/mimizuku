@@ -164,7 +164,8 @@ rm -rf ~/.local/state/mimizuku/aec-diagnostics
 | リポジトリ設定 | ブランチ保護 / squash のみ | main の不変条件(G-0001) |
 | CI | ci / pr-title / security | 検証・コミット規約・シークレット混入 |
 | Claude Code | `.claude/settings.json` permissions | 秘密情報の読取・force push の拒否 |
-| Claude Code / Codex / GitHub Copilot CLI・cloud agent | `scripts/agent-hooks/protect-command.sh`(PreToolUse) | 危険コマンドのブロック(2層目) |
+| Claude Code / Codex / GitHub Copilot CLI・cloud agent | `scripts/agent-hooks/protect-command.sh`(PreToolUse) | 危険コマンドとPRの直接マージ経路のブロック(2層目) |
+| Agent共通 | `scripts/agent-merge-pr.sh` | 通常PRのマージ入口とrelease-please PRの人間専用境界(G-0011) |
 | Claude Code | `.claude/hooks/post-edit.sh`(PostToolUse) | 編集ごとの自動整形(swiftformat / Prettier) |
 | 規約文書 | AGENTS.md | 機械強制できない非自明ルールのみ |
 
@@ -324,7 +325,7 @@ git worktree add \
 ### 4. squash merge
 
 1. 承認対象として保存したPRのbase、head、head commit、タイトル、本文がGitHub上の最新状態と一致することと、全checkがgreenのままであることを確認する。
-2. `gh pr merge <number> --squash --match-head-commit <承認済みhead commit>`を使い、承認後のcommit差し替えを機械的に拒否する。subjectを `<PRタイトル> (#<number>)`、bodyを**PR本文全文**にする。コミット一覧の自動生成本文へ置き換えない。
+2. Agentは`scripts/agent-merge-pr.sh <number> --squash --match-head-commit <承認済みhead commit>`を使い、承認後のcommit差し替えを機械的に拒否する。スクリプトは通常PRだけを`gh pr merge`へ渡し、`release-please--branches--*`のPRは人間自身がマージするよう拒否する(G-0011)。人間が自分のCLIで通常PRまたはrelease-please PRをマージする場合は`gh pr merge`を直接使ってよい。subjectを `<PRタイトル> (#<number>)`、bodyを**PR本文全文**にする。コミット一覧の自動生成本文へ置き換えない。
 3. `gh pr view <number>`で`MERGED`、merge commit、`Closes`対象Issueのcloseを確認する。確認できない状態で後続作業へ進まない。
 
 CLIでは承認対象のsnapshotと本文を`local/agent-artifacts/`へ保持する。承認後に同じfieldsを再取得し、`cmp`が不一致ならマージせず再承認する。
@@ -349,7 +350,7 @@ gh pr view "$pr_number" --json state,isDraft,mergeable,reviewDecision
 approved_head="$(jq -r .headRefOid "$pr_snapshot_file")"
 pr_title="$(jq -r .title "$pr_snapshot_file")"
 jq -r .body "$pr_snapshot_file" > "$pr_body_file"
-gh pr merge "$pr_number" --squash \
+scripts/agent-merge-pr.sh "$pr_number" --squash \
   --match-head-commit "$approved_head" \
   --subject "$pr_title (#$pr_number)" \
   --body-file "$pr_body_file"
@@ -387,7 +388,7 @@ rmdir -- "$pr_artifact_dir"
 
 ### リリースPRのworkflow承認
 
-release-pleaseのリリースPR(`github-actions[bot]`作成)は、Actionsの承認ポリシーによりworkflowが毎回`action_required`で止まり、必須チェックが走らないままマージ不能(`BLOCKED`)になる(#131。採用した方針は「人が承認する運用」)。リリースPRをマージする前に、人がworkflowを承認してCIを回す。
+release-pleaseのリリースPR(`github-actions[bot]`作成)は、Actionsの承認ポリシーによりworkflowが毎回`action_required`で止まり、必須チェックが走らないままマージ不能(`BLOCKED`)になる(#131。採用した方針は「人が承認する運用」)。リリースPRをマージする前に、人がworkflowを承認してCIを回す。さらに、リリースPRのマージ実行は有人・無人を問わずAI Agentへ委ねず、人間自身がGUIまたはCLIから行う(G-0011)。
 
 ```bash
 gh run list --branch release-please--branches--main --limit 3 \
@@ -396,4 +397,4 @@ gh run list --branch release-please--branches--main --limit 3 \
 gh api -X POST repos/{owner}/{repo}/actions/runs/<run_id>/approve
 ```
 
-リリースPRはmainが進むたびにrelease-pleaseが更新するため、承認はマージ直前に行う(headが変わると再承認が必要)。workflowの承認とマージはどちらも無人実行の禁止事項であり、人が行う。
+リリースPRはmainが進むたびにrelease-pleaseが更新するため、承認はマージ直前に行う(headが変わると再承認が必要)。workflowの承認は人が行う。リリースPRのマージはG-0010の無人実行禁止に加えてG-0011の人間専用境界が適用されるため、有人セッションで明示承認を得たAgentも実行しない。Agent用入口`scripts/agent-merge-pr.sh`は`release-please--branches--*`を拒否し、共通PreToolUse hookは直接のGitHub CLI / REST / GraphQLマージ経路を拒否する。

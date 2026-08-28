@@ -16,7 +16,7 @@ description: 定期巡回の内容を定義する。open PRのCI監視とmain追
 3. **open PRのCI監視**: 全open PRのchecksを確認する。lint・fmt崩れなど機械的な失敗は修正してpushする(1件のPRにつき修正は1回まで。解決しなければP2)。設計判断が要る失敗は修正せずP2でキューへ。**bot管理のブランチ(dependabot・release-please)は修正対象外**(項目4の注意と同じ ―― botが上書きする)。
 4. **open PRのmain追従**: mainが進んで古くなったPRブランチに、**コンフリクトが無い場合のみ**mainをブランチへマージしてpushし、CIを回し直す。コンフリクトは解決せずP2でキューへ。**rebaseは使わない** ―― 追従後のrebaseはforce pushを要し、無人実行では禁止(G-0010)かつ共通hookが拒否する。squash merge運用ではブランチ上のマージコミットは履歴に残らない。**bot管理のブランチ(dependabot・release-please)へは手動pushしない** ―― botが自ブランチをforce pushで上書きするため手動追従は消える。dependabotの追従が必要な場合は、`@dependabot rebase`コメントの投稿を**提案としてキューへ積む**(コメント投稿の実行は利用者判断 ―― 無人の許可範囲はdocs/development.mdの許可行に限る)。
 5. **依存更新PRの確認**: dependabot等の更新PRの内容(changelog・影響範囲・CI結果)を確認し、可否判定をP2でキューへ積む。**マージはしない。**
-6. **docs・コード・テストの乖離検査**: 直近のマージでdocs・コード・テストが同じPRで一致しているか(AGENTS.mdの不変条件)を点検する。乖離は修正せずIssue起票の提案としてP2へ(乖離の修正自体が非自明な変更になりうるため)。
+6. **docs・コード・テストの乖離検査**: 直近のマージでdocs・コード・テストが同じPRで一致しているか(AGENTS.mdの不変条件)を点検する。乖離は修正せずIssue起票の提案としてP3へ(提案は`report-queue`スキルの優先度表でP3。乖離の修正自体が非自明な変更になりうるため)。
 7. **リポジトリ衛生**: マージ済みで残ったリモートブランチ、放置されたworktree(`local/worktrees/`)、長期放置のneeds-human PR・Issueを検出し、P3で**報告のみ**行う。削除・クローズはしない(ブランチ削除は無人禁止)。
 8. **次タスクの下調べ**: 着手候補が未調査なら`investigate-issues`(Issue群)または`slice-prep`(スライス)を実行する。結果の扱いは各スキルの定義に従う。
 

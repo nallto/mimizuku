@@ -169,6 +169,24 @@ if [[ -d $workflow_dir ]]; then
       fail "$workflow_skill: オーケストレーションの停止条件が明記されていない"
     grep -Fq "上限" "$workflow_skill" ||
       fail "$workflow_skill: エージェント数の上限が明記されていない"
+
+    # workflowスクリプトはESMでもCJSでもない専用フォーマット(export const meta +
+    # トップレベルreturn。実行時はharnessが本体を関数へ包む)。素のnode --checkは
+    # ESM構文を含む.jsに対してno-opになるため(domain-pitfalls #19)、実行時と同じ
+    # 形へ包んだ一時.mjsを検査する。行頭のexportは全て剥がす前提 ―― 剥がし漏れは
+    # 関数内exportの構文エラー(偽陽性)として顕在化し、無検査へは戻らない。
+    workflow_tmp_base=$(mktemp "${TMPDIR:-/tmp}/workflow-syntax-check.XXXXXX")
+    workflow_tmp="$workflow_tmp_base.mjs"
+    {
+      echo 'async function __workflow_syntax_check() {'
+      sed 's/^export //' "$workflow_script"
+      echo '}'
+    } >"$workflow_tmp"
+    if ! workflow_syntax_output=$(mise exec -- node --check "$workflow_tmp" 2>&1); then
+      rm -f -- "$workflow_tmp" "$workflow_tmp_base"
+      fail "$workflow_script: JavaScript構文エラー: $workflow_syntax_output"
+    fi
+    rm -f -- "$workflow_tmp" "$workflow_tmp_base"
   done
 fi
 

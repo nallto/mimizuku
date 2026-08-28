@@ -39,6 +39,8 @@ cp "$source_root/.github/copilot-instructions.md" "$fixture_root/.github/copilot
 cp "$source_root/.github/agents/verifier.agent.md" "$fixture_root/.github/agents/verifier.agent.md"
 cp "$source_root/.github/hooks/mimizuku-policy.json" "$fixture_root/.github/hooks/mimizuku-policy.json"
 cp "$source_root/.gitignore" "$fixture_root/.gitignore"
+# workflow構文検査のmise exec -- nodeがfixture内でtool解決できるよう、版数定義もコピーする。
+cp "$source_root/mise.toml" "$fixture_root/mise.toml"
 cp "$source_root/AGENTS.md" "$fixture_root/AGENTS.md"
 cp "$source_root/CLAUDE.md" "$fixture_root/CLAUDE.md"
 cp "$source_root/docs/development.md" "$fixture_root/docs/development.md"
@@ -134,6 +136,17 @@ rm -f .claude/commands/agent-config.md
 printf '%s\n' "export const meta = {}" >.claude/workflows/orphan.js
 expect_failure "対応共通skillのないworkflow" ".claude/workflows/orphan.js: 対応する共通skillがない"
 rm -f .claude/workflows/orphan.js
+
+# ESM構文を含む.jsは素のnode --checkでは無検査で通るため(domain-pitfalls #19)、
+# 壊れたworkflowが実際にfailすることを確認する。この回帰テストが無いと、nodeの
+# 版数更新などで検査が無言のno-opへ戻っても気づけない。
+broken_workflow=.claude/workflows/verify.js
+cp "$broken_workflow" "$broken_workflow.bak"
+printf '\nconst broken = (\n' >>"$broken_workflow"
+expect_failure \
+  "workflow構文エラー" \
+  ".claude/workflows/verify.js: JavaScript構文エラー"
+mv "$broken_workflow.bak" "$broken_workflow"
 
 workflow_skill=.agents/skills/investigate-issues/SKILL.md
 cp "$workflow_skill" "$workflow_skill.bak"

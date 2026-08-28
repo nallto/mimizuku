@@ -1,0 +1,16 @@
+{
+  "comment": "local/agent-review.json の記入例。この内容を local/agent-review.json へ複製して編集する(local/ はgit管理外。秘密情報・認証情報は置かない)。形式と語彙の正典は agent-review.schema.json。diversityは必須: runtime-only(runtime差のみ。解決モデル未確認でも成立するが異種モデルとは呼ばない)/ model-family(解決モデルの実測で系統差を判定)/ runtime-and-model-family(両方)。解決モデルを機械確認できるのは現状 claude-code-cli(--output-format json の modelUsage)のみで、codex-cli(--json に model 記載なし。0.149実測)と github-copilot-cli(-s 出力は応答本文のみ)へ model系レベルを要求すると常に DIVERSITY_UNSATISFIED になる ―― この2つには runtime-only を指定する。cross-claude-model-family は主導が codex / copilot のセッション用。",
+  "schemaVersion": 1,
+  "defaultProfile": "cross-codex",
+  "profiles": {
+    "cross-codex": {
+      "runtime": "codex-cli",
+      "effort": "medium",
+      "diversity": "runtime-only"
+    },
+    "cross-claude-model-family": {
+      "runtime": "claude-code-cli",
+      "diversity": "model-family"
+    }
+  }
+}

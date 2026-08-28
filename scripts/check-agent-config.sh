@@ -402,4 +402,14 @@ run_agent_merge_case "release-please PR" 2 "release-please--branches--main"
 run_agent_merge_case "通常PR" 0 "fix/135-block-ai-release-merge"
 run_agent_merge_case "似た名前の通常PR" 0 "fix/release-please-docs"
 
+# agent-review 設定(G-0012)。個人設定は任意 ―― 存在する場合だけ共通validatorで検証する。
+# validatorは design-review.sh と共有し、検証ロジックを複製しない。
+if [[ -f local/agent-review.json ]]; then
+  bash scripts/agent-review-validate.sh local/agent-review.json ||
+    fail "local/agent-review.json: agent-review.schema.json を満たさない"
+fi
+# 記入例はschemaとのdrift防止のため常に検証する。
+bash scripts/agent-review-validate.sh .agents/agent-review.example.json ||
+  fail ".agents/agent-review.example.json: agent-review.schema.json を満たさない"
+
 echo "agent config check passed"

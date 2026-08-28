@@ -63,6 +63,8 @@
 
 - **#8 ホスト型ランナーは TCC 権限を付与できない。** マイクやシステム音声 tap に触れるものはすべてローカル限定。CI は `macos-26` ランナーで純ロジックのパッケージテストを実行する。音声/権限挙動を「CI で検証した」という主張は定義上偽 ―― 代わりにローカル実行ログを要求する。
 
+- **#19 ESM 構文を含む `.js` への `node --check` は no-op(検査したつもりになる)。** `.js` はまず CommonJS として解析され、`export` 等で CJS 解析が失敗すると ESM と判定されるが、`--check` はそこで**成功終了する**(Node 22.7+ の module syntax detection。node 24 で実測、#132)。`.claude/workflows/*.js` のような ESM 構文を含むファイルは 1 行もパースされずに pass し、「pass = 構文が正しい」ではなく「pass = 検査されていない」になる。単純な `.mjs` 化も不可 ―― workflow スクリプトはトップレベル `return` を使う専用フォーマットで、ESM 解析では違法になり無傷のファイルが落ちる(偽陽性)。本当に検査するには、実行時と同じ形(行頭 `export` を剥がして関数へ包んだ一時 `.mjs`)にしてから `--check` する(`scripts/check-agent-config.sh` の workflow 検査)。無検査へ静かに戻る回帰を防ぐため、壊れた fixture で fail する回帰テストを必ず維持する(`scripts/test-agent-config-check.sh`)。なおローカルでは `node` は PATH に無く `mise exec -- node` を使う ―― CI は `jdx/mise-action` が PATH へ入れるため素の `node` でも通ってしまい、CI だけ通ってローカルで落ちるずれになる。
+
 ## Swift 6 concurrency
 
 - **#9 `AVAudioPCMBuffer` は `Sendable` ではない。** アクター/ストリーム境界を跨ぐと、明示的なコピーか `sending` の判断が必要になる。実装時に明示的に解決し、正当化理由を書かずに`@unchecked Sendable` で覆い隠さない(ハード制約 #4)。

@@ -12,7 +12,7 @@ default:
     @just --list
 
 # CI と同一の検証一式(完了報告の前提条件)。
-check: setup-check agent-config-check lint fmt-check test aec-diag-build
+check: setup-check agent-config-check design-review-check lint fmt-check test aec-diag-build
 
 # プレースホルダ・未設定マーカーの残存を検査。
 setup-check:
@@ -22,6 +22,10 @@ setup-check:
 agent-config-check:
     @bash scripts/check-agent-config.sh
     @bash scripts/test-agent-config-check.sh
+
+# 異種reviewer起動アダプター(G-0012)をstub runtimeで検証。実CLI・認証へは触れない。
+design-review-check:
+    @bash scripts/test-design-review.sh
 
 # 全 Swift ソースを lint。
 lint:

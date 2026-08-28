@@ -46,6 +46,7 @@ cp \
   "$source_root/scripts/check-agent-config.sh" \
   "$source_root/scripts/check-skill-frontmatter.rb" \
   "$source_root/scripts/agent-merge-pr.sh" \
+  "$source_root/scripts/agent-review-validate.sh" \
   "$fixture_root/scripts/"
 cp \
   "$source_root/scripts/agent-hooks/protect-command.sh" \
@@ -235,5 +236,17 @@ git add --force .claude/worktrees/stray/tracked.txt
 expect_failure \
   "製品worktree配下の追跡ファイル" \
   "製品固有worktree配下に追跡ファイルがある: .claude/worktrees/stray/tracked.txt"
+
+git rm -q --cached .claude/worktrees/stray/tracked.txt
+rm -rf .claude/worktrees/stray
+
+# agent-review設定のschema不正(G-0012)。設定なしは正常なので、失敗するのは配置時のみ。
+mkdir -p local
+printf '%s\n' '{"schemaVersion": 1, "defaultProfile": "p", "profiles": {"p": {"runtime": "bogus-cli"}}}' \
+  > local/agent-review.json
+expect_failure \
+  "agent-review設定のschema不正" \
+  "local/agent-review.json: agent-review.schema.json を満たさない"
+rm -f local/agent-review.json
 
 echo "agent config negative tests passed"

@@ -5,6 +5,7 @@ excluded:
   - .build
   - DerivedData
   - Packages/MimizukuCore/.build
+  - local
 
 opt_in_rules:
   - empty_count

@@ -42,6 +42,7 @@
 | [G-0009](./governance/G-0009-agent-local-artifact-placement.md) | Agentのworktreeと作業ファイルをプロジェクト内に置く | Accepted |
 | [G-0010](./governance/G-0010-unattended-agent-work.md) | 無人実行はdraft PRまで許可し、報告は優先度つきキューで1件ずつ行う | Accepted |
 | [G-0011](./governance/G-0011-human-only-release-pr-merge.md) | release-please PRのマージ実行は人間に限定する | Accepted |
+| [G-0012](./governance/G-0012-design-review.md) | 設計判断を含む変更に同系+異種reviewerの設計レビューを課す | Accepted |
 
 ## 書き方
 

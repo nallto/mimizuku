@@ -1,0 +1,88 @@
+{
+  "comment": "local/agent-review.json(個人ローカル・非コミット)の形式と、設計レビュー/実装検証の実行状態・理由語彙の正典(G-0012)。名称へ言及する文書は本ファイルを正典とし、理由語彙の一覧をここ以外へ複製しない。検証は scripts/agent-review-validate.sh が本ファイルを読んで行う。diversityは各profileで必須(弱い保証を無意識に選ばせない)。runtime-onlyはruntime差のみの保証であり「異種モデル」ではない。",
+  "schemaVersion": 1,
+  "vocabulary": {
+    "runtimes": [
+      "codex-cli",
+      "claude-code-cli",
+      "github-copilot-cli"
+    ],
+    "diversity": [
+      "runtime-only",
+      "model-family",
+      "runtime-and-model-family"
+    ],
+    "stages": [
+      "design",
+      "impl"
+    ],
+    "executionStates": [
+      "COMPLETED",
+      "NOT_CONFIGURED",
+      "UNAVAILABLE",
+      "DIVERSITY_UNSATISFIED"
+    ],
+    "unavailableReasons": [
+      "config_missing",
+      "invalid_configuration",
+      "profile_not_found",
+      "command_not_found",
+      "authentication",
+      "quota_exceeded",
+      "timeout",
+      "runtime_error",
+      "resolved_diversity_mismatch"
+    ],
+    "verdicts": [
+      "READY",
+      "REVISE",
+      "DECISION_NEEDED",
+      "INCONCLUSIVE"
+    ],
+    "implVerdicts": [
+      "PASS",
+      "FAIL",
+      "INCONCLUSIVE"
+    ],
+    "severities": [
+      "blocking",
+      "minor"
+    ],
+    "reviewScopes": [
+      "FULL",
+      "DEGRADED"
+    ]
+  },
+  "familyPatterns": [
+    {
+      "pattern": "^claude-",
+      "family": "anthropic"
+    },
+    {
+      "pattern": "^(gpt-|o[0-9])",
+      "family": "openai"
+    }
+  ],
+  "config": {
+    "required": [
+      "schemaVersion",
+      "defaultProfile",
+      "profiles"
+    ],
+    "profileRequired": [
+      "runtime",
+      "diversity"
+    ],
+    "profileOptional": [
+      "model",
+      "effort",
+      "timeoutSeconds"
+    ]
+  },
+  "defaults": {
+    "timeoutSeconds": {
+      "design": 900,
+      "impl": 1800
+    }
+  }
+}

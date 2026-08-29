@@ -70,4 +70,5 @@ nav:
       - G-0010 無人実行と報告キュー: adr/governance/G-0010-unattended-agent-work.md
       - G-0011 release-please PRの人間マージ: adr/governance/G-0011-human-only-release-pr-merge.md
       - G-0012 設計レビュー: adr/governance/G-0012-design-review.md
+      - G-0013 カバレッジ駆動改善ループ: adr/governance/G-0013-coverage-driven-improvement-loop.md
       - テンプレート: adr/template.md

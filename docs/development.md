@@ -15,8 +15,14 @@ just check      # CI と同一の検証
 ## 検証の原則
 
 - **`just check` = CI。** ローカルで green なら CI も green(乖離したらバグとして直す)。CI はデプロイターゲット(ADR-0001)に合わせ `macos-26`(Apple Silicon)で実行する。
-- `just check` = `setup-check` + `agent-config-check` + `lint`(swiftlint) + `fmt-check`(swiftformat / Prettier) + `test` (MimizukuCore の swift test)。
+- `just check` = `setup-check` + `agent-config-check` + `design-review-check` + `coverage-sensor-check` + `lint`(swiftlint) + `fmt-check`(swiftformat / Prettier) + `test`(MimizukuCore の swift test) + `aec-diag-build`。
 - **`just check` は純ロジックのみを検証する。** マイク / システム音声 / TCC / モデルアセットの挙動はホスト型ランナーで実行できない(domain-pitfalls #8)。それらは各スライスに記した手動テストで人間がローカル検証する。
+
+## カバレッジ計測(sensor)
+
+`just coverage` は MimizukuCore を計測ビルドしてテストを実行し、スコープ(`Packages/MimizukuCore/Sources/MimizukuCore/`)内の未カバー関数から wont-cover 台帳(`scripts/coverage-wontcover.json`)の有効項目を引いた **sensor 出力**を表示する。出力ゼロが set point 到達で、仕様の正典は [G-0013](./adr/governance/G-0013-coverage-driven-improvement-loop.md)。計測ビルドを伴い重いため `just check` には含めず、sensor の解析ロジック自体は `just coverage-sensor-check`(fixture 検証、check に含む)が守る。
+
+台帳は 1 件ごとに理由必須で、更新は人間承認の PR のみ(無人実行では変更しない)。項目は登録時の実測(file・region 総数・未カバー数)に紐づき、どれかが実測とずれると自動で失効して sensor 出力へ戻る。stale・重複・schema 違反は sensor がエラーにする(fail-closed)。
 
 ## Markdownの整形
 

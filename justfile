@@ -12,7 +12,7 @@ default:
     @just --list
 
 # CI と同一の検証一式(完了報告の前提条件)。
-check: setup-check agent-config-check design-review-check lint fmt-check test aec-diag-build
+check: setup-check agent-config-check design-review-check coverage-sensor-check lint fmt-check test aec-diag-build
 
 # プレースホルダ・未設定マーカーの残存を検査。
 setup-check:
@@ -26,6 +26,16 @@ agent-config-check:
 # 異種reviewer起動アダプター(G-0012)をstub runtimeで検証。実CLI・認証へは触れない。
 design-review-check:
     @bash scripts/test-design-review.sh
+
+# カバレッジsensorの解析ロジックをfixtureとPATHスタブで検証(G-0013)。
+# Swiftビルド不要の純ロジック検査。重い計測本体は `just coverage`(checkに含めない)。
+coverage-sensor-check:
+    @bash scripts/test-coverage-sensor.sh
+
+# カバレッジ計測 + sensor(G-0013)。未カバー一覧からwont-cover台帳の有効項目を引いた
+# sensor出力を表示し、ゼロなら set point reached。計測ビルドを伴うため重い。
+coverage:
+    @bash scripts/coverage-sensor.sh
 
 # 全 Swift ソースを lint。
 lint:

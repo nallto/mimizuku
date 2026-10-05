@@ -242,6 +242,8 @@ git worktree add \
 
 終了後は「変更をmainへ統合する」の承認と後始末に従って`git worktree remove`する。稼働中のworktreeを配置規約の変更だけを理由に移動・削除せず、次に作るworktreeから適用する。
 
+例外として、patrolのカバレッジ計測用worktree`local/worktrees/143-coverage-patrol/`は、統合を伴わない常設のdetached worktreeであり、統合後の後始末(remove)の対象外とする。計測のたびに使い回し、前回のビルド成果物を再利用する(`.agents/skills/patrol/SKILL.md`の項目9)。
+
 製品がセッション開始前にworktreeを作る場合は、その時点では`AGENTS.md`をまだ読めないため、リポジトリ規約だけで保存先を強制できない。利用形態ごとの接続方法は次のとおり。
 
 | 利用形態 | 接続方法 |

@@ -288,7 +288,7 @@ git worktree add \
 
 製品別のローカル登録手順:
 
-- **Claude Code**: 定期実行の機構(スケジュール機能、またはOSのcron / launchdからの`claude -p "/patrol"`起動)へ`/patrol`を登録する。登録は`~/.claude/`配下やcrontab等の個人ローカル設定で行い、コミットしない。
+- **Claude Code**: 定期実行の機構(スケジュール機能、またはOSのcron / launchdからの`claude -p "/patrol"`起動)へ`/patrol`を登録する。登録は`~/.claude/`配下やcrontab等の個人ローカル設定で行い、コミットしない。cron / launchdから起動すると対話シェルの初期化が走らず、miseのshimsがPATHに入らないため`just`が見つからない(patrolの項目9の計測が終了コード127で失敗する)。登録時にshimsのディレクトリ(既定は`~/.local/share/mise/shims`)をPATHへ足すか、`mise exec`を経由して起動する。
 - **定期実行機構を持たないAgent(codex / github-copilot / 未登録)**: 作業セッションの開始時に`patrol` skillを手動で実行する(セッション開始時の報告キュー確認は`report-queue` skillの義務でもある)。
 - いずれの経路でも、巡回が守る境界は本節の許可・禁止表であり、登録方法によって変わらない。
 

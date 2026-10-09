@@ -11,9 +11,10 @@ description: 定期巡回の内容を定義する。open PRのCI監視とmain追
 
 ## 巡回項目(この順に1パス)
 
+0. **実行環境の確認**: メインチェックアウトのルートで`mise ls --local --missing`を実行する。終了コードが0で標準出力が空のときだけ次の項目へ進む。終了コードが0以外ならP2(事前検査の失敗。標準エラーの末尾を本文に書く)、標準出力が空でなければP2(`mise.toml`の版が未インストール。人が`mise install`する。足りない行を本文に書く)を報告キューへ積み、巡回全体をここで止める。`mise exec`は未インストールの版を警告だけでPATH上の別の版にすり替えて続行するため、事前に止める(docs/development.md「無人実行と報告キュー」)。
 1. **報告キューの棚卸し**: `report-queue`スキルに従い、pendingの最優先1件を報告する。`status: reported`のまま残っている項目は判断が済んだか確認し、済んでいれば削除する。
 2. **mainの健全性**: mainの最新CIがgreenかを確認する。redならP1としてキューへ積む(P1は即時報告対象)。
-3. **open PRのCI監視**: 全open PRのchecksを確認する。lint・fmt崩れなど機械的な失敗は修正してpushする(1件のPRにつき修正は1回まで。解決しなければP2)。設計判断が要る失敗は修正せずP2でキューへ。**bot管理のブランチ(dependabot・release-please)は修正対象外**(項目4の注意と同じ ―― botが上書きする)。
+3. **open PRのCI監視**: 全open PRのchecksを確認する。lint・fmt崩れなど機械的な失敗は修正してpushする(1件のPRにつき修正は1回まで。解決しなければP2)。設計判断が要る失敗は修正せずP2でキューへ。修正する前に、そのブランチのworktreeとメインチェックアウトのルートでそれぞれ`mise ls --local --json`を実行する。どちらかの終了コードが0以外なら修正せずP2(ツールの版を確認できない)でキューへ。両方が成功したら、それぞれの出力を`jq -S 'with_entries(.value |= map(select(.active) | .version))'`で実際に使われる版だけに絞って比べ、違えば修正せずP2(ツールの版が違うPRは無人で修正しない ―― hookと整形は巡回を起動した時点の版で動くため)でキューへ。**bot管理のブランチ(dependabot・release-please)は修正対象外**(項目4の注意と同じ ―― botが上書きする)。
 4. **open PRのmain追従**: mainが進んで古くなったPRブランチに、**コンフリクトが無い場合のみ**mainをブランチへマージしてpushし、CIを回し直す。コンフリクトは解決せずP2でキューへ。**rebaseは使わない** ―― 追従後のrebaseはforce pushを要し、無人実行では禁止(G-0010)かつ共通hookが拒否する。squash merge運用ではブランチ上のマージコミットは履歴に残らない。**bot管理のブランチ(dependabot・release-please)へは手動pushしない** ―― botが自ブランチをforce pushで上書きするため手動追従は消える。dependabotの追従が必要な場合は、`@dependabot rebase`コメントの投稿を**提案としてキューへ積む**(コメント投稿の実行は利用者判断 ―― 無人の許可範囲はdocs/development.mdの許可行に限る)。
 5. **依存更新PRの確認**: dependabot等の更新PRの内容(changelog・影響範囲・CI結果)を確認し、可否判定をP2でキューへ積む。**マージはしない。**
 6. **docs・コード・テストの乖離検査**: 直近のマージでdocs・コード・テストが同じPRで一致しているか(AGENTS.mdの不変条件)を点検する。乖離は修正せずIssue起票の提案としてP3へ(提案は`report-queue`スキルの優先度表でP3。乖離の修正自体が非自明な変更になりうるため)。
@@ -29,6 +30,7 @@ description: 定期巡回の内容を定義する。open PRのCI監視とmain追
 - **項目9の目的と停止条件**: 目的はsensor出力(G-0013 決定2)を人へ届け、テスト追加の着手判断の材料にすること。1巡回で`just coverage`を最大1回・再試行なしで打ち切る。sensor出力がゼロでも項目は残し、7日ごとの計測を続ける(G-0013 決定5)。追加エージェントは使わない。
 - **項目9を無人で実行できるAgent**: コマンドに上限があり、上限超過を検知して停止できるAgent(現状はClaude Code)に限る。そうでないAgentは、人が見ている手動巡回のときだけ項目9を実行し、無人の巡回ではスキップする。
 - 巡回での作業は`local/worktrees/`で行い、利用者のmain checkoutを占有しない(同節の作業場所規則)。
+- 無人の巡回は、docs/development.md「無人実行と報告キュー」の規約どおり`mise exec`で包んで起動したsessionで動く前提とする(mise管理のツールをPATHに頼らず解決するため)。
 
 ## カバレッジ計測の手順(項目9)
 
@@ -40,7 +42,7 @@ description: 定期巡回の内容を定義する。open PRのCI監視とmain追
    - `<path>`が無いのに登録だけ残っている(prunable)→ 何もせず計測失敗(計測未実行。「`git worktree prune`が必要(人の操作)」と書く)。
    - `<path>`があり、`git worktree list --porcelain`に`worktree <path>`の行があり、かつ`git -C <path> rev-parse --show-toplevel`が`<path>`と一致する → `git -C <path> status --porcelain`が空のときだけ`git -C <path> checkout --detach origin/main`で最新へ移す。空でなければ触らずに計測失敗(計測未実行)。
    - `<path>`があるが上の条件を満たさない(未登録の残骸など)→ **何もせず**計測失敗(計測未実行)。`git -C <path>`が親のメインチェックアウトを操作するのを防ぐため。
-3. **計測**: `<log>` = `mktemp <main-root>/local/cache/coverage-patrol/run-XXXXXXXX`が作ったファイル(この計測専用。失敗したら計測失敗(計測未実行))。直前に`git -C <path> rev-parse HEAD`を記録し、`<path>`で`just coverage > <log> 2>&1`をforegroundで実行する(上限10分を指定)。上限内に終わらずAgentがコマンドをbackgroundへ移した場合(Claude Codeは上限到達時に停止せず移す)は、待たずにそのタスクを停止して上限超過とする。終了コードを記録する。直後に、HEADが記録した値と一致し`git -C <path> status --porcelain`が空であることを確かめる(違えば、計測中に別の巡回がworktreeを動かしたとみなし計測失敗)。
+3. **計測**: まず`<path>`で`mise ls --local --missing`を実行し、終了コードが0で標準出力が空のときだけ計測へ進む。それ以外(終了コードが0以外、または不足の行がある)は計測失敗(計測未実行。検査の失敗、またはworktreeの`mise.toml`の版が未インストール)とする(worktreeは別のcommitをcheckoutするので、項目0とは別に検査する)。`<log>` = `mktemp <main-root>/local/cache/coverage-patrol/run-XXXXXXXX`が作ったファイル(この計測専用。失敗したら計測失敗(計測未実行))。直前に`git -C <path> rev-parse HEAD`を記録し、`<path>`で`MISE_EXEC_AUTO_INSTALL=0 mise exec -- just coverage > <log> 2>&1`をforegroundで実行する(上限10分を指定。worktreeの`mise.toml`の版で解決するため`mise exec`を明示する)。上限内に終わらずAgentがコマンドをbackgroundへ移した場合(Claude Codeは上限到達時に停止せず移す)は、待たずにそのタスクを停止して上限超過とする。終了コードを記録する。直後に、HEADが記録した値と一致し`git -C <path> status --porcelain`が空であることを確かめる(違えば、計測中に別の巡回がworktreeを動かしたとみなし計測失敗)。
 4. **判定**: 根拠は手順2の成否、手順3の終了コード・上限超過の有無・HEADの確認、この計測の`<log>`の`summary:`行と`set point reached`行**だけ**。ほかのログは読まない。
    - 終了コード0、`summary:`行がちょうど1行、`uncovered_functions`か`wontcover_expired`が1以上 → **提案**(`kind: proposal`)。
    - 終了コード0、`summary:`行がちょうど1行、`uncovered_functions=0`・`wontcover_expired=0`、`set point reached`行あり → **到達**(`kind: reached`)。
@@ -57,6 +59,10 @@ description: 定期巡回の内容を定義する。open PRのCI監視とmain追
 台帳・テスト・floorは無人で変更しない(G-0013 決定3・4・6)。提案は報告キューへの積み込みに限り、draft PRとIssueコメントは作らない(G-0013 決定4)。
 
 既知の限界: 報告キューの確認と書き換えの間に別のセッションや同時に走った巡回が同じ項目を変更すると(ロックが無いため)、reportedの項目を書き換えたり、新しい結果が次回の計測まで届かなかったりしうる。影響はP3情報の遅れに限られ、次回の計測でpendingの項目が書き直される(reportedの項目は報告した側が判断のあとに消す)ので受け入れている(#143の裁定記録)。
+
+計測用worktreeはメインチェックアウトの下にあるので、mise はメインチェックアウトの`mise.toml`(と個人の`mise.local.toml`があればそれも)を親の設定として継承する。worktree側の`mise.toml`の定義が優先されるので、項目9の計測が使う版はworktreeのcommitの`mise.toml`どおりになる。
+
+項目0で不足が見つかったときは、その検査と続くP2の報告(時刻の取得と項目ファイルの作成)の間だけ、hook(`jq`、編集後の整形の`just`・`prettier`)が別の版で動いたり、整形がスキップされたりしうる。報告の後は巡回を止めるので、影響はこの数回に限られる。なお`mise ls`は、読んだ設定ファイルの記録を`~/.local/state/mise/tracked-configs/`へ足していく(mise自身の挙動で、害は小さい)。
 
 ## 結果の扱い
 

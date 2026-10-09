@@ -4,7 +4,7 @@
 
 ## セットアップ
 
-前提は [mise](https://mise.jdx.dev/) と **Xcode 26**(App Store / Apple Developer より)。補助ツールの版数は `mise.toml` が SSOT。Swift コンパイラは Xcode 由来。
+前提は [mise](https://mise.jdx.dev/)、**Xcode 26**(App Store / Apple Developer より)、git、[GitHub CLI(gh)](https://cli.github.com/)。これらは mise の管理外で、各自が PATH に用意する。補助ツール(下記の `mise install` で入るもの)の版数は `mise.toml` が SSOT で、mise に解決させる。Swift コンパイラは Xcode 由来。
 
 ```bash
 mise install    # just / jq / swiftlint / swiftformat / node / prettier
@@ -282,13 +282,15 @@ git worktree add \
 | 必須 | 作成するPRはdraft。`needs-human`ラベルと本文の「人の介在が必要な項目」節を伴わせる |
 | 作業場所 | `local/worktrees/<issue番号>-<短い説明>/`。利用者が使うmain checkoutを占有しない |
 
+無人の経路のツール解決: 無人の経路が実行環境に求めるのは、「セットアップ」の前提のうち mise の管理外のもの(mise、Xcode、git、gh)と Agent の CLI が PATH にあることだけとする。mise が管理するツール(`mise.toml` の `[tools]`)は PATH に頼らず mise に解決させるため、無人の session は `MISE_EXEC_AUTO_INSTALL=0 MISE_NOT_FOUND_AUTO_INSTALL=0 mise exec -C <リポジトリ> -- <Agent の CLI> …` の形で起動し、PATH に mise の shims を入れない。launchd や cron はシェルの初期化を読まないので、shims や `mise activate` には頼らない。自動インストールは止める(ツールのインストールは人が `mise install` で行う)。`mise exec` は未インストールの版を警告だけで PATH 上の別の版にすり替えて続行するので、足りない版は巡回の最初の事前検査(`mise ls --local --missing` が終了コード0で標準出力が空であること)で検出して止める(`.agents/skills/patrol/SKILL.md` の項目0)。起動時の `mise exec` は作業ツリーの `mise.toml` を自動で trust して読み込むが、これは巡回が同じ作業ツリーのリポジトリのコード(hook・justfile・スクリプト)を実行するのと同じ信頼の扱いとして受け入れる。
+
 報告キューは`local/agent-artifacts/report-queue/`に1件1ファイルで置く。パスはworktree内ではなく**メインチェックアウトのルート**基準で解決する(worktreeは撤収で消えるため、そこへ積むと報告待ちが失われる)。本ファイルは基準だけを示し、解決方法、優先度規則、ファイル形式、報告手順は`.agents/skills/report-queue/SKILL.md`を正典とする。
 
 定期巡回の内容は`.agents/skills/patrol/SKILL.md`で定義する(G-0010 決定3)。実行間隔と稼働時間帯は各自のAgent製品側でローカルに登録し、リポジトリへ焼き込まない。夜間に限定せず、休日や日中の中断中も同じ扱いとする。
 
 製品別のローカル登録手順:
 
-- **Claude Code**: 定期実行の機構(スケジュール機能、またはOSのcron / launchdからの`claude -p "/patrol"`起動)へ`/patrol`を登録する。登録は`~/.claude/`配下やcrontab等の個人ローカル設定で行い、コミットしない。cron / launchdから起動すると対話シェルの初期化が走らず、miseのshimsがPATHに入らないため`just`が見つからない(patrolの項目9の計測が終了コード127で失敗する)。登録時にshimsのディレクトリ(既定は`~/.local/share/mise/shims`)をPATHへ足すか、`mise exec`を経由して起動する。
+- **Claude Code**: 定期実行の機構(スケジュール機能、またはOSのcron / launchdからの`claude -p "/patrol"`起動)へ`/patrol`を登録する。登録は`~/.claude/`配下やcrontab等の個人ローカル設定で行い、コミットしない。登録の形は上記「無人の経路のツール解決」に従う(例: `MISE_EXEC_AUTO_INSTALL=0 MISE_NOT_FOUND_AUTO_INSTALL=0 mise exec -C <リポジトリ> -- claude -p "/patrol"`。PATH には mise、Xcode のコマンドラインツール、git、gh、claude だけを与える)。`claude --bg`は session を daemon の下で動かすため、既存の daemon が再利用されると包んだ環境が引き継がれない可能性がある(未確認)。使う場合は、session の中でツールが mise の版に解決されることを自分で確かめる。
 - **定期実行機構を持たないAgent(codex / github-copilot / 未登録)**: 作業セッションの開始時に`patrol` skillを手動で実行する(セッション開始時の報告キュー確認は`report-queue` skillの義務でもある)。
 - いずれの経路でも、巡回が守る境界は本節の許可・禁止表であり、登録方法によって変わらない。
 

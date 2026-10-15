@@ -46,6 +46,7 @@ Mimizuku は、録音・オンデバイス文字起こし・ノートを統合�
 - Issue に着手する前に、担当者(assignee)が未設定なら**自分をアサイン**する(チーム開発での二重着手を防ぐ。Claude Code では `gh issue edit <番号> --add-assignee @me`)。
 - ブランチは Issue 番号で切る: `<type>/<issue番号>-<短い説明>`。**1 Issue = 1 PR**(下記「ブランチとマージ」)。
 - 実装計画のスライスは、[`docs/plan/IMPLEMENTATION_PLAN.md`](./docs/plan/IMPLEMENTATION_PLAN.md) の各スライス = 1 Issue として**事前に起票**しておく(着手時に Issue 番号でブランチを切れる状態にする)。
+- 親 Issue を分割して子 Issue を起こすときは、子を GitHub の **Sub-issue** として付ける(新規は `gh issue create --parent <親の番号>`、既存は `gh issue edit <子の番号> --parent <親の番号>`)。親子関係と親の進み具合は Sub-issue の関係で表し、本文の「#N 分割」といった記述だけに頼らない(親の画面で進み具合が見え、Agent も API で親子をたどれるため)。完了した作業の追従の修正など、独立した Issue は Sub-issue にせず、本文で関連をリンクする。
 - 例外: リポジトリ setup や軽微な雑務など Issue 化の価値が薄いものは Issue 無しでよいが、その理由を PR 概要に書く。
 
 ## ブランチとマージ(理由と例外条件: G-0001)

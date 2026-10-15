@@ -41,6 +41,16 @@ done
 # ネイティブ機構の無いcopilotはプロンプト指示+フェンス除去fallbackで受ける)。
 [[ -n $out_schema && -f $out_schema ]] || { echo "--output-schema が必要" >&2; exit 64; }
 
+# パス引数は呼び出し時の作業ディレクトリ基準の絶対パスへ正規化する(#153)。
+# codex impl は使い捨てworktreeを基準に動く(git -C <wt> apply、codex --cd <wt>)ため、
+# 相対パスのままだと patch・出力・schema の解決先が worktree 側へずれる。
+# 未作成のパス(record / artifact)も扱えるよう、実在確認なしの文字列連結で行う。
+abs_path() { [[ $1 == /* ]] && printf '%s' "$1" || printf '%s/%s' "$PWD" "$1"; }
+prompt_file=$(abs_path "$prompt_file")
+out_schema=$(abs_path "$out_schema")
+[[ -n $record_file ]] && record_file=$(abs_path "$record_file")
+[[ -n $artifact_dir ]] && artifact_dir=$(abs_path "$artifact_dir")
+
 root=$(git rev-parse --show-toplevel)
 schema_file="$root/.agents/agent-review.schema.json"
 config_file="$root/local/agent-review.json"

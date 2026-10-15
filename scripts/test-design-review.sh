@@ -46,11 +46,21 @@ cat > "$stub_bin/codex" <<'STUB'
 out="" wt=""
 if [[ ${1:-} == "--version" ]]; then echo "codex-cli stub 0.0.1"; exit 0; fi
 args=("$@")
+schema=""
 for ((i = 0; i < ${#args[@]}; i++)); do
   case ${args[i]} in
     -o) out=${args[i + 1]} ;;
     --cd) wt=${args[i + 1]} ;;
+    --output-schema) schema=${args[i + 1]} ;;
   esac
+done
+# launcherはパスを絶対パスへ正規化して渡す(#153)。--cd で作業ディレクトリが
+# 変わっても解決先がずれないことを、すべてのcodexケースで確かめる。
+for p in "$out" "$schema"; do
+  if [[ -n $p && $p != /* ]]; then
+    echo "stub codex: 相対パスを受け取った: $p" >&2
+    exit 3
+  fi
 done
 case ${STUB_MODE:-normal} in
   normal)
@@ -469,6 +479,22 @@ expect "impl untracked追加" UNAVAILABLE runtime_error
 # 15. impl: reviewerによるcommit(HEAD変更) → UNAVAILABLE(runtime_error)
 STUB_MODE=impl-commit run_launcher impl
 expect "impl HEAD変更" UNAVAILABLE runtime_error
+
+# 15b. impl: --artifact-dir を相対パスで渡しても、隔離worktreeを基準にずれず完走する(#153)。
+# 相対パスのままだと、patch の適用(git -C <worktree> apply)と出力先(--cd <worktree> -o)が
+# worktree 基準で解決されて失敗する。
+rm -rf rel-artifacts
+STUB_MODE=impl-observe bash scripts/design-review.sh --stage impl \
+  --lead-runtime claude-code-cli --lead-family anthropic \
+  --prompt-file prompt.md --output-schema out-schema.json --record-file record.json \
+  --artifact-dir rel-artifacts
+expect "impl 相対パスのartifact-dir" COMPLETED ""
+[[ -s $fixture_root/rel-artifacts/target.patch && -s $fixture_root/rel-artifacts/reviewer-output.json ]] ||
+  {
+    echo "design-review test failed: 相対パスのartifact-dirに成果物が無い: $(ls -la "$fixture_root/rel-artifacts" 2>&1)" >&2
+    exit 1
+  }
+rm -rf rel-artifacts
 
 # 16. worktreeが撤収されている
 remaining=$(ls "$fixture_root/local/worktrees" 2>/dev/null | wc -l | tr -d ' ')
